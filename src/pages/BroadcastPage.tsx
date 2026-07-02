@@ -1,0 +1,1759 @@
+import { useState, useRef, useEffect } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Send, Smartphone, User, Clock, FileText,AlertCircle, Search, Phone, CheckCircle, XCircle, Shield, Users, Loader2, Plus, Settings, Trash2, MinusCircle, UserPlus, Variable, PlusCircle } from "lucide-react";
+import { supabase } from "@/lib/supabaseClient";
+
+interface PatientOption {
+  id: string;
+  name: string;
+  phone_number: string;
+}
+
+interface GroupOption {
+  id: string;
+  name: string;
+  description: string | null;
+  memberCount: number;
+}
+
+interface GroupMember {
+  id: string;
+  patient_id: string;
+  name: string;
+  phone_number: string;
+  custom_value_1: string | null;
+}
+
+interface GroupMemberForManage {
+  id: string;
+  patient_id: string;
+  name: string;
+  phone_number: string;
+  custom_value_1: string | null;
+}
+
+interface ClinicSettings {
+  fonteApiKey: string;
+  signature: string;
+  clinicName: string;
+}
+
+interface SendProgress {
+  current: number;
+  total: number;
+  success: number;
+  failed: number;
+}
+
+interface MessageTemplate {
+  id: string;
+  title: string;
+  content: string;
+  user_id: string;
+  created_at: string;
+}
+
+type SendMode = "single" | "group";
+type ManageTab = "create" | "members";
+
+export function BroadcastPage() {
+  const [sendMode, setSendMode] = useState<SendMode>("single");
+  
+  const [patients, setPatients] = useState<PatientOption[]>([]);
+  const [isLoadingPatients, setIsLoadingPatients] = useState(false);
+  const [selectedPatient, setSelectedPatient] = useState<PatientOption | null>(null);
+  
+  const [groups, setGroups] = useState<GroupOption[]>([]);
+  const [isLoadingGroups, setIsLoadingGroups] = useState(false);
+  const [selectedGroup, setSelectedGroup] = useState<GroupOption | null>(null);
+  const [groupMembers, setGroupMembers] = useState<GroupMember[]>([]);
+  const [isLoadingMembers, setIsLoadingMembers] = useState(false);
+  
+  const [isManageGroupsOpen, setIsManageGroupsOpen] = useState(false);
+  const [manageTab, setManageTab] = useState<ManageTab>("create");
+  const [isSavingGroup, setIsSavingGroup] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [newGroupDesc, setNewGroupDesc] = useState("");
+  const [selectedManageGroup, setSelectedManageGroup] = useState<GroupOption | null>(null);
+  const [groupMembersForManage, setGroupMembersForManage] = useState<GroupMemberForManage[]>([]);
+  const [isLoadingManageMembers, setIsLoadingManageMembers] = useState(false);
+  const [searchNewMember, setSearchNewMember] = useState("");
+  const [newMemberCustomValue, setNewMemberCustomValue] = useState("");
+  const [isAddingMember, setIsAddingMember] = useState(false);
+  const [isDeletingGroup, setIsDeletingGroup] = useState(false);
+  
+  const [templates, setTemplates] = useState<MessageTemplate[]>([]);
+  const [isLoadingTemplates, setIsLoadingTemplates] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [selectedTemplateTitle, setSelectedTemplateTitle] = useState<string>("Invoice");
+  const [message, setMessage] = useState<string>("");
+  const [isCreateTemplateOpen, setIsCreateTemplateOpen] = useState(false);
+  const [newTemplateTitle, setNewTemplateTitle] = useState("");
+  const [newTemplateContent, setNewTemplateContent] = useState("");
+  const [isCreatingTemplate, setIsCreatingTemplate] = useState(false);
+  
+  const [isSending, setIsSending] = useState(false);
+  const [sendProgress, setSendProgress] = useState<SendProgress>({ current: 0, total: 0, success: 0, failed: 0 });
+  const [showSuccessToast, setShowSuccessToast] = useState(false);
+  const [showErrorToast, setShowErrorToast] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
+  const [isTemplateDialogOpen, setIsTemplateDialogOpen] = useState(false);
+  const [isPatientDropdownOpen, setIsPatientDropdownOpen] = useState(false);
+  const [isGroupDropdownOpen, setIsGroupDropdownOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [groupSearchQuery, setGroupSearchQuery] = useState("");
+  const [clinicSettings, setClinicSettings] = useState<ClinicSettings | null>(null);
+  const [isLoadingSettings, setIsLoadingSettings] = useState(true);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const patientDropdownRef = useRef<HTMLDivElement>(null);
+  const groupDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    fetchPatients();
+    fetchGroups();
+    fetchClinicSettings();
+    fetchTemplates();
+  }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (patientDropdownRef.current && !patientDropdownRef.current.contains(event.target as Node)) {
+        setIsPatientDropdownOpen(false);
+      }
+      if (groupDropdownRef.current && !groupDropdownRef.current.contains(event.target as Node)) {
+        setIsGroupDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (selectedGroup) {
+      fetchGroupMembers(selectedGroup.id);
+    } else {
+      setGroupMembers([]);
+    }
+  }, [selectedGroup]);
+
+  useEffect(() => {
+    if (selectedManageGroup && manageTab === "members") {
+      fetchGroupMembersForManage(selectedManageGroup.id);
+    } else {
+      setGroupMembersForManage([]);
+    }
+  }, [selectedManageGroup, manageTab]);
+
+  const fetchTemplates = async () => {
+    setIsLoadingTemplates(true);
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const userId = userData?.user?.id;
+
+      if (!userId) {
+        console.error("User not authenticated");
+        setIsLoadingTemplates(false);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('message_templates')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        setTemplates(data);
+        setSelectedTemplateId(data[0].id);
+        setSelectedTemplateTitle(data[0].title);
+        setMessage(data[0].content);
+      } else {
+        await createDefaultTemplates(userId);
+      }
+    } catch (error: any) {
+      console.error('Error fetching templates:', error);
+      setErrorMessage(error.message);
+      setShowErrorToast(true);
+      setTimeout(() => setShowErrorToast(false), 3000);
+    } finally {
+      setIsLoadingTemplates(false);
+    }
+  };
+
+  const createDefaultTemplates = async (userId: string) => {
+    const defaultTemplates = [
+      {
+        title: "Hasil Lab",
+        content: "Yth. {{name}},\n\nHasil laboratorium Anda sudah keluar.\n{{value1}}\nSilakan datang ke klinik untuk konsultasi lebih lanjut.\n\nTerima kasih.",
+        user_id: userId
+      },
+      {
+        title: "Antrian",
+        content: "Halo {{name}},\n\nNomor antrian Anda: {{queueNo}}\nCatatan: {{value1}}\nPerkiraan waktu tunggu: 30 menit.\n\nTerima kasih.",
+        user_id: userId
+      }
+    ];
+
+    const { error } = await supabase
+      .from('message_templates')
+      .insert(defaultTemplates);
+
+    if (error) {
+      console.error('Error creating default templates:', error);
+    } else {
+      await fetchTemplates();
+    }
+  };
+
+  const handleCreateTemplate = async () => {
+    if (!newTemplateTitle.trim()) {
+      alert("Judul template harus diisi!");
+      return;
+    }
+
+    if (!newTemplateContent.trim()) {
+      alert("Isi template harus diisi!");
+      return;
+    }
+
+    setIsCreatingTemplate(true);
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const userId = userData?.user?.id;
+
+      if (!userId) throw new Error("User not authenticated");
+
+      const { data, error } = await supabase
+        .from('message_templates')
+        .insert({
+          title: newTemplateTitle,
+          content: newTemplateContent,
+          user_id: userId
+        })
+        .select();
+
+      if (error) throw error;
+
+      if (data && data[0]) {
+        setTemplates(prev => [...prev, data[0]]);
+        setSelectedTemplateId(data[0].id);
+        setSelectedTemplateTitle(data[0].title);
+        setMessage(data[0].content);
+      }
+
+      setNewTemplateTitle("");
+      setNewTemplateContent("");
+      setIsCreateTemplateOpen(false);
+      setShowSuccessToast(true);
+      setSuccessMessage("Template berhasil dibuat!");
+      setTimeout(() => setShowSuccessToast(false), 3000);
+    } catch (error: any) {
+      console.error('Error creating template:', error);
+      setErrorMessage(error.message);
+      setShowErrorToast(true);
+      setTimeout(() => setShowErrorToast(false), 3000);
+    } finally {
+      setIsCreatingTemplate(false);
+    }
+  };
+
+const handleDeleteTemplate = async (templateId: string, templateTitle: string) => {
+  if (!confirm(`Apakah Anda yakin ingin menghapus template "${templateTitle}"?`)) return;
+
+  try {
+    const { error } = await supabase
+      .from('message_templates')
+      .delete()
+      .eq('id', templateId);
+
+    if (error) throw error;
+
+    const updatedTemplates = templates.filter(t => t.id !== templateId);
+    setTemplates(updatedTemplates);
+
+    if (selectedTemplateId === templateId) {
+      if (updatedTemplates.length > 0) {
+        setSelectedTemplateId(updatedTemplates[0].id);
+        setSelectedTemplateTitle(updatedTemplates[0].title);
+        setMessage(updatedTemplates[0].content);
+      } else {
+        setSelectedTemplateId(null);
+        setSelectedTemplateTitle("");
+        setMessage("");
+      }
+    }
+
+    setShowSuccessToast(true);
+    setSuccessMessage(`Template "${templateTitle}" berhasil dihapus!`);
+    setTimeout(() => setShowSuccessToast(false), 3000);
+  } catch (error: any) {
+    console.error('Error deleting template:', error);
+    setErrorMessage(error.message || "Gagal menghapus template");
+    setShowErrorToast(true);
+    setTimeout(() => setShowErrorToast(false), 3000);
+  }
+};
+
+  const handleTemplateSelect = (template: MessageTemplate) => {
+    setSelectedTemplateId(template.id);
+    setSelectedTemplateTitle(template.title);
+    setMessage(template.content);
+    setIsTemplateDialogOpen(false);
+  };
+
+  const fetchPatients = async () => {
+    setIsLoadingPatients(true);
+    try {
+      const { data, error } = await supabase
+        .from('patients')
+        .select('id, name, phone_number')
+        .eq('status', 'Aktif')
+        .order('name', { ascending: true });
+
+      if (error) throw error;
+      
+      const patientOptions: PatientOption[] = (data || []).map((item: any) => ({
+        id: item.id,
+        name: item.name,
+        phone_number: item.phone_number
+      }));
+      
+      setPatients(patientOptions);
+    } catch (error: any) {
+      console.error('Error fetching patients:', error);
+    } finally {
+      setIsLoadingPatients(false);
+    }
+  };
+
+  const fetchGroups = async () => {
+    setIsLoadingGroups(true);
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const userId = userData?.user?.id;
+
+      const { data, error } = await supabase
+        .from('patient_groups')
+        .select('*')
+        .eq('user_id', userId)
+        .order('name', { ascending: true });
+
+      if (error) throw error;
+
+      const groupsWithCount: GroupOption[] = await Promise.all(
+        (data || []).map(async (group: any) => {
+          const { count } = await supabase
+            .from('group_members')
+            .select('*', { count: 'exact', head: true })
+            .eq('group_id', group.id);
+
+          return {
+            id: group.id,
+            name: group.name,
+            description: group.description,
+            memberCount: count || 0
+          };
+        })
+      );
+      
+      setGroups(groupsWithCount);
+    } catch (error: any) {
+      console.error('Error fetching groups:', error);
+    } finally {
+      setIsLoadingGroups(false);
+    }
+  };
+
+  const fetchGroupMembers = async (groupId: string) => {
+    setIsLoadingMembers(true);
+    try {
+      const { data, error } = await supabase
+        .from('group_members')
+        .select(`
+          id,
+          patient_id,
+          custom_value_1,
+          patients!inner (
+            name,
+            phone_number
+          )
+        `)
+        .eq('group_id', groupId);
+
+      if (error) throw error;
+
+      const members: GroupMember[] = (data || []).map((item: any) => ({
+        id: item.id,
+        patient_id: item.patient_id,
+        name: item.patients.name,
+        phone_number: item.patients.phone_number,
+        custom_value_1: item.custom_value_1 || null
+      }));
+      
+      setGroupMembers(members);
+    } catch (error: any) {
+      console.error('Error fetching group members:', error);
+    } finally {
+      setIsLoadingMembers(false);
+    }
+  };
+
+  const fetchGroupMembersForManage = async (groupId: string) => {
+    setIsLoadingManageMembers(true);
+    try {
+      const { data, error } = await supabase
+        .from('group_members')
+        .select(`
+          id,
+          patient_id,
+          custom_value_1,
+          patients!inner (
+            name,
+            phone_number
+          )
+        `)
+        .eq('group_id', groupId);
+
+      if (error) throw error;
+
+      const members: GroupMemberForManage[] = (data || []).map((item: any) => ({
+        id: item.id,
+        patient_id: item.patient_id,
+        name: item.patients.name,
+        phone_number: item.patients.phone_number,
+        custom_value_1: item.custom_value_1 || null
+      }));
+      
+      setGroupMembersForManage(members);
+    } catch (error: any) {
+      console.error('Error fetching group members for manage:', error);
+    } finally {
+      setIsLoadingManageMembers(false);
+    }
+  };
+
+  const handleCreateGroup = async () => {
+    if (!newGroupName.trim()) {
+      alert("Nama grup harus diisi!");
+      return;
+    }
+
+    setIsSavingGroup(true);
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const userId = userData?.user?.id;
+
+      if (!userId) throw new Error("User not authenticated");
+
+      const { error } = await supabase
+        .from('patient_groups')
+        .insert({
+          name: newGroupName,
+          description: newGroupDesc || null,
+          user_id: userId
+        });
+
+      if (error) throw error;
+
+      setNewGroupName("");
+      setNewGroupDesc("");
+      await fetchGroups();
+      setShowSuccessToast(true);
+      setSuccessMessage("Grup berhasil dibuat!");
+      setTimeout(() => setShowSuccessToast(false), 3000);
+    } catch (error: any) {
+      console.error('Error creating group:', error);
+      setErrorMessage(error.message);
+      setShowErrorToast(true);
+      setTimeout(() => setShowErrorToast(false), 3000);
+    } finally {
+      setIsSavingGroup(false);
+    }
+  };
+
+  const handleDeleteGroup = async (groupId: string, groupName: string) => {
+    if (!confirm(`Apakah Anda yakin ingin menghapus grup "${groupName}"?`)) return;
+
+    setIsDeletingGroup(true);
+    try {
+      const { error } = await supabase
+        .from('patient_groups')
+        .delete()
+        .eq('id', groupId);
+
+      if (error) throw error;
+
+      await fetchGroups();
+      if (selectedGroup?.id === groupId) {
+        setSelectedGroup(null);
+      }
+      setShowSuccessToast(true);
+      setSuccessMessage("Grup berhasil dihapus!");
+      setTimeout(() => setShowSuccessToast(false), 3000);
+    } catch (error: any) {
+      console.error('Error deleting group:', error);
+      setErrorMessage(error.message);
+      setShowErrorToast(true);
+      setTimeout(() => setShowErrorToast(false), 3000);
+    } finally {
+      setIsDeletingGroup(false);
+    }
+  };
+
+  const handleAddMember = async (patientId: string, patientName: string) => {
+    if (!selectedManageGroup) return;
+
+    setIsAddingMember(true);
+    try {
+      const { error } = await supabase
+        .from('group_members')
+        .insert({
+          group_id: selectedManageGroup.id,
+          patient_id: patientId,
+          custom_value_1: newMemberCustomValue || null
+        });
+
+      if (error) throw error;
+
+      await fetchGroupMembersForManage(selectedManageGroup.id);
+      await fetchGroups();
+      setSearchNewMember("");
+      setNewMemberCustomValue("");
+      setShowSuccessToast(true);
+      setSuccessMessage(`${patientName} berhasil ditambahkan ke grup!`);
+      setTimeout(() => setShowSuccessToast(false), 3000);
+    } catch (error: any) {
+      console.error('Error adding member:', error);
+      setErrorMessage(error.message);
+      setShowErrorToast(true);
+      setTimeout(() => setShowErrorToast(false), 3000);
+    } finally {
+      setIsAddingMember(false);
+    }
+  };
+
+  const handleRemoveMember = async (memberId: string, memberName: string) => {
+    if (!confirm(`Hapus ${memberName} dari grup?`)) return;
+
+    try {
+      const { error } = await supabase
+        .from('group_members')
+        .delete()
+        .eq('id', memberId);
+
+      if (error) throw error;
+
+      await fetchGroupMembersForManage(selectedManageGroup!.id);
+      await fetchGroups();
+      setShowSuccessToast(true);
+      setSuccessMessage(`${memberName} berhasil dihapus dari grup!`);
+      setTimeout(() => setShowSuccessToast(false), 3000);
+    } catch (error: any) {
+      console.error('Error removing member:', error);
+      setErrorMessage(error.message);
+      setShowErrorToast(true);
+      setTimeout(() => setShowErrorToast(false), 3000);
+    }
+  };
+
+  const handleUpdateCustomValue = async (memberId: string, customValue: string) => {
+    try {
+      const { error } = await supabase
+        .from('group_members')
+        .update({ custom_value_1: customValue || null })
+        .eq('id', memberId);
+
+      if (error) throw error;
+
+      setGroupMembersForManage(prev =>
+        prev.map(m => m.id === memberId ? { ...m, custom_value_1: customValue || null } : m)
+      );
+      
+      if (selectedGroup && selectedGroup.id === selectedManageGroup?.id) {
+        setGroupMembers(prev =>
+          prev.map(m => m.id === memberId ? { ...m, custom_value_1: customValue || null } : m)
+        );
+      }
+    } catch (error: any) {
+      console.error('Error updating custom value:', error);
+      setErrorMessage(error.message);
+      setShowErrorToast(true);
+      setTimeout(() => setShowErrorToast(false), 3000);
+    }
+  };
+
+  const getAvailablePatients = () => {
+    const memberIds = groupMembersForManage.map(m => m.patient_id);
+    return patients.filter(p => !memberIds.includes(p.id));
+  };
+
+  const availablePatients = getAvailablePatients();
+  const filteredAvailablePatients = availablePatients.filter(p =>
+    p.name.toLowerCase().includes(searchNewMember.toLowerCase()) ||
+    p.phone_number.includes(searchNewMember)
+  );
+
+  const fetchClinicSettings = async () => {
+    setIsLoadingSettings(true);
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const userId = userData?.user?.id;
+
+      if (!userId) {
+        console.error("User not authenticated");
+        setIsLoadingSettings(false);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('clinic_settings')
+        .select('fonte_api_key, signature, clinic_name')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (error && error.code !== 'PGRST116') throw error;
+
+      if (data) {
+        setClinicSettings({
+          fonteApiKey: data.fonte_api_key || "",
+          signature: data.signature || "",
+          clinicName: data.clinic_name || "",
+        });
+      }
+    } catch (error: any) {
+      console.error('Error fetching clinic settings:', error);
+    } finally {
+      setIsLoadingSettings(false);
+    }
+  };
+
+  const formatPhoneToInternational = (phone: string): string => {
+    let cleaned = phone.replace(/\D/g, "");
+    if (cleaned.startsWith("0")) {
+      cleaned = "62" + cleaned.slice(1);
+    } else if (cleaned.startsWith("62")) {
+      cleaned = cleaned;
+    } else if (cleaned.startsWith("8")) {
+      cleaned = "62" + cleaned;
+    }
+    return cleaned;
+  };
+
+  const getPersonalizedMessage = (patientName: string, baseMessage: string, customValue?: string | null, queueNumber?: string): string => {
+    let personalized = baseMessage;
+    personalized = personalized.replace(/{{name}}/g, patientName);
+    personalized = personalized.replace(/{{value1}}/g, customValue || "");
+    if (queueNumber) {
+      personalized = personalized.replace(/{{queueNo}}/g, queueNumber);
+    }
+    
+    if (clinicSettings?.signature) {
+      let signature = clinicSettings.signature;
+      signature = signature.replace(/{clinic_name}/g, clinicSettings.clinicName || "Klinik");
+      personalized += "\n\n" + signature;
+    }
+    
+    return personalized;
+  };
+
+  const sendToFonnte = async (phoneNumber: string, messageText: string): Promise<any> => {
+    if (!clinicSettings?.fonteApiKey) {
+      throw new Error("API Key Fonnte tidak ditemukan.");
+    }
+
+    const formattedPhone = formatPhoneToInternational(phoneNumber);
+    const formData = new FormData();
+    formData.append('target', formattedPhone);
+    formData.append('message', messageText);
+
+    const response = await fetch('https://api.fonnte.com/send', {
+      method: 'POST',
+      headers: { 'Authorization': clinicSettings.fonteApiKey },
+      body: formData,
+    });
+
+    const data = await response.json();
+    
+    if (!response.ok || data.status === false) {
+      throw new Error(data.message || "Gagal mengirim pesan");
+    }
+    
+    return data;
+  };
+
+  const saveMessageLog = async (
+    patientId: string,
+    messageType: string,
+    messageContent: string,
+    status: string,
+    fonteResponseId: string | null = null
+  ) => {
+    try {
+      await supabase.from('message_logs').insert({
+        patient_id: patientId,
+        message_type: messageType,
+        message_content: messageContent,
+        status: status,
+        delivery_time: new Date().toISOString(),
+        fonte_response_id: fonteResponseId,
+      });
+    } catch (error: any) {
+      console.error('Error saving message log:', error);
+    }
+  };
+
+  const handleSendSingle = async () => {
+    if (!selectedPatient) {
+      alert("Silakan pilih pasien terlebih dahulu!");
+      return;
+    }
+
+    if (!message.trim()) {
+      alert("Pesan tidak boleh kosong!");
+      return;
+    }
+
+    if (!clinicSettings?.fonteApiKey) {
+      alert("API Key Fonnte belum dikonfigurasi.");
+      return;
+    }
+
+    setIsSending(true);
+    const fullMessage = getPersonalizedMessage(selectedPatient.name, message);
+    const messageType = selectedTemplateTitle;
+
+    try {
+      const result = await sendToFonnte(selectedPatient.phone_number, fullMessage);
+      await saveMessageLog(selectedPatient.id, messageType, fullMessage, 'sent', result.id || null);
+      
+      setSuccessMessage(`Pesan berhasil dikirim ke ${selectedPatient.name}`);
+      setShowSuccessToast(true);
+      setTimeout(() => setShowSuccessToast(false), 4000);
+      resetForm();
+    } catch (error: any) {
+      await saveMessageLog(selectedPatient.id, messageType, fullMessage, 'failed', null);
+      setErrorMessage(error.message || "Gagal mengirim pesan");
+      setShowErrorToast(true);
+      setTimeout(() => setShowErrorToast(false), 5000);
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handleSendGroup = async () => {
+    if (!selectedGroup) {
+      alert("Silakan pilih grup terlebih dahulu!");
+      return;
+    }
+
+    if (groupMembers.length === 0) {
+      alert("Grup ini tidak memiliki anggota!");
+      return;
+    }
+
+    if (!message.trim()) {
+      alert("Pesan tidak boleh kosong!");
+      return;
+    }
+
+    if (!clinicSettings?.fonteApiKey) {
+      alert("API Key Fonnte belum dikonfigurasi.");
+      return;
+    }
+
+    setIsSending(true);
+    setSendProgress({ current: 0, total: groupMembers.length, success: 0, failed: 0 });
+
+    let successCount = 0;
+    let failedCount = 0;
+
+    for (let i = 0; i < groupMembers.length; i++) {
+      const member = groupMembers[i];
+      const personalizedMessage = getPersonalizedMessage(member.name, message, member.custom_value_1);
+      const messageType = selectedTemplateTitle;
+
+      setSendProgress(prev => ({ ...prev, current: i + 1 }));
+
+      try {
+        const result = await sendToFonnte(member.phone_number, personalizedMessage);
+        await saveMessageLog(member.patient_id, messageType, personalizedMessage, 'sent', result.id || null);
+        successCount++;
+        setSendProgress(prev => ({ ...prev, success: successCount }));
+      } catch (error: any) {
+        await saveMessageLog(member.patient_id, messageType, personalizedMessage, 'failed', null);
+        failedCount++;
+        setSendProgress(prev => ({ ...prev, failed: failedCount }));
+        console.error(`Failed to send to ${member.name}:`, error);
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
+    const summary = `Berhasil mengirim ${successCount} pesan, ${failedCount} gagal.`;
+    if (failedCount === 0) {
+      setSuccessMessage(summary);
+      setShowSuccessToast(true);
+      resetForm();
+    } else {
+      setErrorMessage(summary);
+      setShowErrorToast(true);
+    }
+    
+    setTimeout(() => {
+      setShowSuccessToast(false);
+      setShowErrorToast(false);
+    }, 5000);
+    
+    setIsSending(false);
+    setSelectedGroup(null);
+    setGroupMembers([]);
+  };
+
+  const handleSendMessage = () => {
+    if (sendMode === "single") {
+      handleSendSingle();
+    } else {
+      handleSendGroup();
+    }
+  };
+
+  const resetForm = () => {
+    setSelectedPatient(null);
+    setSelectedGroup(null);
+    setGroupMembers([]);
+    if (templates.length > 0) {
+      setSelectedTemplateId(templates[0].id);
+      setSelectedTemplateTitle(templates[0].title);
+      setMessage(templates[0].content);
+    }
+    setSearchQuery("");
+    setGroupSearchQuery("");
+  };
+
+  const insertVariable = (variable: string) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const before = message.substring(0, start);
+    const after = message.substring(end);
+    const newText = before + variable + after;
+    
+    setMessage(newText);
+    
+    setTimeout(() => {
+      textarea.focus();
+      const newCursorPos = start + variable.length;
+      textarea.setSelectionRange(newCursorPos, newCursorPos);
+    }, 0);
+  };
+
+  const handlePatientSelect = (patient: PatientOption) => {
+    setSelectedPatient(patient);
+    setSearchQuery("");
+    setIsPatientDropdownOpen(false);
+  };
+
+  const handleGroupSelect = (group: GroupOption) => {
+    setSelectedGroup(group);
+    setGroupSearchQuery("");
+    setIsGroupDropdownOpen(false);
+  };
+
+  const getPreviewCustomValue = () => {
+    if (sendMode === "group" && groupMembers.length > 0) {
+      return groupMembers[0].custom_value_1 || "";
+    }
+    return "";
+  };
+
+  const getPreviewPatientName = () => {
+    if (sendMode === "single") {
+      return selectedPatient ? selectedPatient.name : "Belum dipilih";
+    } else {
+      return groupMembers.length > 0 ? groupMembers[0].name : "Belum dipilih";
+    }
+  };
+
+  const getPreviewMessage = () => {
+    let previewText = message;
+    previewText = previewText.replace(/{{name}}/g, getPreviewPatientName());
+    previewText = previewText.replace(/{{value1}}/g, getPreviewCustomValue());
+    previewText = previewText.replace(/{{queueNo}}/g, "000");
+    return previewText;
+  };
+
+  const filteredGroups = groups.filter((group) =>
+    group.name.toLowerCase().includes(groupSearchQuery.toLowerCase())
+  );
+
+  const filteredPatients = patients.filter((patient) =>
+    patient.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    patient.phone_number.includes(searchQuery)
+  );
+
+  // const getMaskedApiKey = (key: string) => {
+  //   if (!key || key.length < 10) return "Belum dikonfigurasi";
+  //   return key.slice(0, 8) + "..." + key.slice(-4);
+  // };
+
+  const isSendDisabled = () => {
+    if (sendMode === "single") {
+      return isSending || !selectedPatient || !message.trim() || !clinicSettings?.fonteApiKey;
+    } else {
+      return isSending || !selectedGroup || groupMembers.length === 0 || !message.trim() || !clinicSettings?.fonteApiKey;
+    }
+  };
+
+  const getSendButtonText = () => {
+    if (isSending && sendMode === "group") {
+      return `Mengirim ${sendProgress.current} dari ${sendProgress.total} pesan... (${sendProgress.success} berhasil, ${sendProgress.failed} gagal)`;
+    }
+    if (isSending) {
+      return "Mengirim...";
+    }
+    return "Kirim via WhatsApp";
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-semibold tracking-tight">Pusat Pengiriman Pesan</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Buat dan kirim pesan WhatsApp dengan variabel dinamis
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        
+        <div className="space-y-4">
+          <Card className="h-full">
+            <CardHeader>
+              <CardTitle>Komposer Pesan</CardTitle>
+              <CardDescription>
+                Buat pesan siaran dengan variabel dinamis
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Template Pesan</label>
+                <Button
+                  variant="outline"
+                  className="w-full justify-between"
+                  onClick={() => setIsTemplateDialogOpen(true)}
+                >
+                  <span>{selectedTemplateTitle}</span>
+                  <span className="text-muted-foreground">▼</span>
+                </Button>
+              </div>
+
+              <div className="flex gap-2 p-1 bg-muted/50 rounded-lg">
+                <button
+                  onClick={() => setSendMode("single")}
+                  className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all ${
+                    sendMode === "single"
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  <div className="flex items-center justify-center gap-2">
+                    <User className="h-4 w-4" />
+                    Kirim Satuan
+                  </div>
+                </button>
+                <button
+                  onClick={() => setSendMode("group")}
+                  className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all ${
+                    sendMode === "group"
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  <div className="flex items-center justify-center gap-2">
+                    <Users className="h-4 w-4" />
+                    Kirim Grup
+                  </div>
+                </button>
+              </div>
+
+              {sendMode === "single" && (
+                <div className="space-y-4 mt-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground">Penerima Pesan</label>
+                    <div className="relative" ref={patientDropdownRef}>
+                      <div 
+                        className="flex items-center justify-between rounded-md border border-input bg-background px-3 py-2 cursor-pointer hover:bg-muted/50 transition-colors"
+                        onClick={() => setIsPatientDropdownOpen(!isPatientDropdownOpen)}
+                      >
+                        <div className="flex items-center gap-2 flex-1">
+                          <User className="h-4 w-4 text-muted-foreground" />
+                          {selectedPatient ? (
+                            <div className="flex-1">
+                              <span className="text-sm font-medium">{selectedPatient.name}</span>
+                              <span className="text-xs text-muted-foreground ml-2">
+                                {selectedPatient.phone_number.slice(0, 4)}...{selectedPatient.phone_number.slice(-4)}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">Cari dan pilih pasien...</span>
+                          )}
+                        </div>
+                        <span className="text-muted-foreground">{isPatientDropdownOpen ? "▲" : "▼"}</span>
+                      </div>
+
+                      {isPatientDropdownOpen && (
+                        <div className="absolute z-50 w-full mt-1 rounded-md border border-border bg-white shadow-lg">
+                          <div className="p-2 border-b border-border">
+                            <div className="relative">
+                              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                              <Input
+                                placeholder="Cari nama atau nomor WhatsApp..."
+                                value={searchQuery}
+                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
+                                className="pl-9"
+                                autoFocus
+                              />
+                            </div>
+                          </div>
+                          <div className="max-h-64 overflow-y-auto">
+                            {isLoadingPatients ? (
+                              <div className="flex justify-center items-center py-8">
+                                <Loader2 className="h-6 w-6 animate-spin" />
+                              </div>
+                            ) : filteredPatients.length === 0 ? (
+                              <div className="text-center py-8 text-muted-foreground">
+                                <User className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                                <p className="text-sm">Tidak ada pasien ditemukan</p>
+                              </div>
+                            ) : (
+                              filteredPatients.map((patient) => (
+                                <button
+                                  key={patient.id}
+                                  className="w-full text-left px-3 py-2 hover:bg-muted transition-colors flex items-center gap-3 border-b border-border/50 last:border-0"
+                                  onClick={() => handlePatientSelect(patient)}
+                                >
+                                  <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+                                    <User className="h-4 w-4 text-primary" />
+                                  </div>
+                                  <div className="flex-1">
+                                    <div className="font-medium text-sm">{patient.name}</div>
+                                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                      <Phone className="h-3 w-3" />
+                                      {patient.phone_number}
+                                    </div>
+                                  </div>
+                                </button>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    {selectedPatient && (
+                      <p className="text-xs text-green-600">✓ Terpilih: {selectedPatient.name}</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {sendMode === "group" && (
+                <div className="space-y-4 mt-4">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm font-medium text-foreground flex-1">Pilih Grup</label>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setSelectedManageGroup(null);
+                          setNewGroupName("");
+                          setNewGroupDesc("");
+                          setSearchNewMember("");
+                          setNewMemberCustomValue("");
+                          setManageTab("create");
+                          setIsManageGroupsOpen(true);
+                        }}
+                        className="gap-1"
+                      >
+                        <Settings className="h-3 w-3" />
+                        Kelola Grup
+                      </Button>
+                    </div>
+                    <div className="relative" ref={groupDropdownRef}>
+                      <div 
+                        className="flex items-center justify-between rounded-md border border-input bg-background px-3 py-2 cursor-pointer hover:bg-muted/50 transition-colors"
+                        onClick={() => setIsGroupDropdownOpen(!isGroupDropdownOpen)}
+                      >
+                        <div className="flex items-center gap-2 flex-1">
+                          <Users className="h-4 w-4 text-muted-foreground" />
+                          {selectedGroup ? (
+                            <div className="flex-1">
+                              <span className="text-sm font-medium">{selectedGroup.name}</span>
+                              <span className="text-xs text-muted-foreground ml-2">
+                                ({selectedGroup.memberCount} anggota)
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">Pilih grup...</span>
+                          )}
+                        </div>
+                        <span className="text-muted-foreground">{isGroupDropdownOpen ? "▲" : "▼"}</span>
+                      </div>
+
+                      {isGroupDropdownOpen && (
+                        <div className="absolute z-50 w-full mt-1 rounded-md border border-border bg-white shadow-lg">
+                          <div className="p-2 border-b border-border">
+                            <div className="relative">
+                              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                              <Input
+                                placeholder="Cari grup..."
+                                value={groupSearchQuery}
+                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setGroupSearchQuery(e.target.value)}
+                                className="pl-9"
+                                autoFocus
+                              />
+                            </div>
+                          </div>
+                          <div className="max-h-64 overflow-y-auto">
+                            {isLoadingGroups ? (
+                              <div className="flex justify-center items-center py-8">
+                                <Loader2 className="h-6 w-6 animate-spin" />
+                              </div>
+                            ) : filteredGroups.length === 0 ? (
+                              <div className="text-center py-8 text-muted-foreground">
+                                <Users className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                                <p className="text-sm">Tidak ada grup ditemukan</p>
+                                <Button
+                                  variant="link"
+                                  size="sm"
+                                  onClick={() => {
+                                    setIsGroupDropdownOpen(false);
+                                    setSelectedManageGroup(null);
+                                    setNewGroupName("");
+                                    setNewGroupDesc("");
+                                    setSearchNewMember("");
+                                    setNewMemberCustomValue("");
+                                    setManageTab("create");
+                                    setIsManageGroupsOpen(true);
+                                  }}
+                                  className="mt-2"
+                                >
+                                  <Plus className="h-3 w-3 mr-1" />
+                                  Buat grup baru
+                                </Button>
+                              </div>
+                            ) : (
+                              filteredGroups.map((group) => (
+                                <button
+                                  key={group.id}
+                                  className="w-full text-left px-3 py-2 hover:bg-muted transition-colors flex items-center gap-3 border-b border-border/50 last:border-0"
+                                  onClick={() => handleGroupSelect(group)}
+                                >
+                                  <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+                                    <Users className="h-4 w-4 text-primary" />
+                                  </div>
+                                  <div className="flex-1">
+                                    <div className="font-medium text-sm">{group.name}</div>
+                                    <div className="text-xs text-muted-foreground">
+                                      {group.memberCount} anggota
+                                    </div>
+                                  </div>
+                                </button>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {selectedGroup && (
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-foreground">Anggota Grup</label>
+                      <div className="rounded-md border border-border max-h-48 overflow-y-auto">
+                        {isLoadingMembers ? (
+                          <div className="flex justify-center items-center py-8">
+                            <Loader2 className="h-6 w-6 animate-spin" />
+                          </div>
+                        ) : groupMembers.length === 0 ? (
+                          <div className="text-center py-8 text-muted-foreground">
+                            <p className="text-sm">Grup ini tidak memiliki anggota</p>
+                            <Button
+                              variant="link"
+                              size="sm"
+                              onClick={() => {
+                                setSelectedManageGroup(selectedGroup);
+                                setManageTab("members");
+                                setIsManageGroupsOpen(true);
+                              }}
+                              className="mt-2"
+                            >
+                              <UserPlus className="h-3 w-3 mr-1" />
+                              Tambah anggota
+                            </Button>
+                          </div>
+                        ) : (
+                          groupMembers.map((member, idx) => (
+                            <div
+                              key={member.id}
+                              className="flex items-center gap-3 px-3 py-2 border-b border-border/50 last:border-0"
+                            >
+                              <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center">
+                                <User className="h-3 w-3 text-primary" />
+                              </div>
+                              <div className="flex-1">
+                                <span className="text-sm font-medium">{member.name}</span>
+                                <span className="text-xs text-muted-foreground ml-2">
+                                  {member.phone_number}
+                                </span>
+                                {member.custom_value_1 && (
+                                  <div className="text-xs text-primary mt-0.5">
+                                    Nilai: {member.custom_value_1}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="text-xs text-muted-foreground">#{idx + 1}</div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Total {groupMembers.length} penerima
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Sisipkan Variabel</label>
+                <div className="flex gap-2 flex-wrap">
+                  <Button type="button" variant="outline" size="sm" onClick={() => insertVariable("{{name}}")} className="gap-2">
+                    <User className="h-3 w-3" /> + Nama
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" onClick={() => insertVariable("{{queueNo}}")} className="gap-2">
+                    <Clock className="h-3 w-3" /> + No. Antrian
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" onClick={() => insertVariable("{{value1}}")} className="gap-2">
+                    <Variable className="h-3 w-3" /> + Nilai Kustom
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Klik tombol untuk menyisipkan variabel di posisi kursor
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Isi Pesan</label>
+                <textarea
+                  ref={textareaRef}
+                  value={message}
+                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setMessage(e.target.value)}
+                  placeholder="Tulis pesan Anda di sini... Gunakan {{value1}} untuk nilai kustom per anggota"
+                  className="flex min-h-[200px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 font-mono"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Tips: Gunakan {"{{name}}"}, {"{{value1}}"} (nilai kustom per anggota), dan {"{{queueNo}}"} sebagai variabel dinamis
+                </p>
+              </div>
+
+              <div className="rounded-lg bg-gray-50 p-3 border border-gray-200">
+                <div className="flex items-start gap-2">
+                  <Shield className="h-4 w-4 text-gray-600 mt-0.5" />
+                  <div className="text-xs text-gray-700">
+                    <span className="font-semibold">Status API Key:</span>{" "}
+                    {isLoadingSettings ? "Memuat..." : clinicSettings?.fonteApiKey ? (
+                      <span className="text-green-600">✓ Terkonfigurasi</span>
+                    ) : (
+                      <span className="text-red-600">✗ Belum dikonfigurasi</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <Button onClick={handleSendMessage} disabled={isSendDisabled()} className="w-full gap-2">
+                {isSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                {getSendButtonText()}
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="space-y-4">
+          <Card className="h-full">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Pratinjau Langsung</CardTitle>
+                  <CardDescription>Pratinjau pesan WhatsApp secara real-time</CardDescription>
+                </div>
+                <Smartphone className="h-5 w-5 text-muted-foreground" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="mx-auto max-w-[380px] rounded-3xl border-8 border-gray-800 bg-gray-800 shadow-xl">
+                <div className="bg-white rounded-t-2xl">
+                  <div className="bg-[#075E54] px-4 py-3 rounded-t-2xl">
+                    <div className="flex items-center gap-3">
+                      <div className="h-8 w-8 rounded-full bg-gray-300 flex items-center justify-center">
+                        <User className="h-4 w-4 text-gray-600" />
+                      </div>
+                      <div>
+                        <div className="text-white font-semibold text-sm">{getPreviewPatientName()}</div>
+                        <div className="text-[#D9F0EC] text-xs">
+                          {sendMode === "single" && selectedPatient ? "Online" : sendMode === "group" && groupMembers.length > 0 ? "Grup" : "Belum dipilih"}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-[#ECE5DD] min-h-[500px] px-3 py-4 space-y-3">
+                  <div className="flex justify-end">
+                    <div className="max-w-[80%] bg-[#DCF8C6] rounded-lg px-3 py-2 shadow-sm">
+                      <div className="text-sm whitespace-pre-wrap break-words">
+                        {getPreviewMessage() || "Pesan Anda akan muncul di sini..."}
+                      </div>
+                      <div className="text-[10px] text-gray-500 text-right mt-1">
+                        {new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                    </div>
+                  </div>
+
+                  {sendMode === "group" && groupMembers.length > 0 && groupMembers[0].custom_value_1 && (
+                    <div className="flex justify-end">
+                      <div className="max-w-[80%] bg-[#DCF8C6] rounded-lg px-3 py-2 shadow-sm opacity-70">
+                        <div className="text-xs whitespace-pre-wrap break-words text-gray-600">
+                          💡 Nilai Kustom: {groupMembers[0].custom_value_1}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {clinicSettings?.signature && getPreviewMessage() && (
+                    <div className="flex justify-end">
+                      <div className="max-w-[80%] bg-[#DCF8C6] rounded-lg px-3 py-2 shadow-sm opacity-70">
+                        <div className="text-xs whitespace-pre-wrap break-words text-gray-600">
+                          {clinicSettings.signature.replace(/{clinic_name}/g, clinicSettings.clinicName || "Klinik")}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {!getPreviewMessage() && (
+                    <div className="flex justify-center items-center h-64">
+                      <div className="text-center text-gray-400">
+                        <AlertCircle className="h-8 w-8 mx-auto mb-2" />
+                        <p className="text-sm">Pratinjau akan muncul di sini</p>
+                        <p className="text-xs">Mulai mengetik di editor</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-[#F0F0F0] px-3 py-2 rounded-b-2xl">
+                  <div className="flex items-center gap-2 bg-white rounded-lg px-3 py-2">
+                    <div className="flex-1 text-sm text-gray-400">Ketik pesan...</div>
+                    <Send className="h-4 w-4 text-[#075E54]" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="h-4 w-4 text-blue-600 mt-0.5" />
+                  <div className="text-xs text-blue-800">
+                    <span className="font-semibold">Injeksi Variabel:</span> {"{{name}}"} →{" "}
+                    <span className="font-mono bg-blue-100 px-1 rounded">{getPreviewPatientName()}</span>
+                    {" | "}
+                    {"{{value1}}"} →{" "}
+                    <span className="font-mono bg-blue-100 px-1 rounded">{getPreviewCustomValue() || "(kosong)"}</span>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      <Dialog open={isTemplateDialogOpen} onOpenChange={setIsTemplateDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Pilih Template Pesan</DialogTitle>
+            <DialogDescription>Pilih template untuk memulai</DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            {isLoadingTemplates ? (
+              <div className="flex justify-center items-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin" />
+              </div>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  {templates.map((template) => (
+                    <div
+                      key={template.id}
+                      className="flex items-center gap-2 p-2 rounded-lg border border-border hover:bg-muted/50 transition-colors group"
+                    >
+                      <button
+                        className="flex-1 flex items-center gap-3 text-left p-2 rounded-md"
+                        onClick={() => handleTemplateSelect(template)}
+                      >
+                        <FileText className="h-5 w-5 text-primary shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium text-foreground">{template.title}</div>
+                          <div className="text-xs text-muted-foreground line-clamp-1">
+                            {template.content.substring(0, 80)}...
+                          </div>
+                        </div>
+                      </button>
+                      
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="shrink-0 text-muted-foreground hover:text-red-600 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+                        onClick={() => handleDeleteTemplate(template.id, template.title)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+
+                {templates.length === 0 && (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <FileText className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                    <p>Belum ada template pesan</p>
+                    <p className="text-sm">Klik tombol di bawah untuk membuat template baru</p>
+                  </div>
+                )}
+
+                <div className="border-t pt-4 mt-2">
+                  <Button
+                    variant="ghost"
+                    className="w-full gap-2"
+                    onClick={() => {
+                      setIsTemplateDialogOpen(false);
+                      setIsCreateTemplateOpen(true);
+                    }}
+                  >
+                    <PlusCircle className="h-4 w-4" />
+                    Buat Template Baru
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isCreateTemplateOpen} onOpenChange={setIsCreateTemplateOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Buat Template Baru</DialogTitle>
+            <DialogDescription>Buat template pesan baru untuk digunakan nanti</DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Judul Template</label>
+              <Input
+                placeholder="Contoh: Pengambilan Obat, Kontrol Ulang, dll"
+                value={newTemplateTitle}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewTemplateTitle(e.target.value)}
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Isi Pesan</label>
+              <textarea
+                placeholder="Tulis isi pesan template di sini...&#10;&#10;Gunakan variabel:&#10;{{name}} - Nama pasien&#10;{{value1}} - Nilai kustom per anggota&#10;{{queueNo}} - Nomor antrian"
+                value={newTemplateContent}
+                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setNewTemplateContent(e.target.value)}
+                className="flex min-h-[200px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 font-mono"
+              />
+              <p className="text-xs text-muted-foreground">
+                Tips: Gunakan {"{{name}}"}, {"{{value1}}"}, dan {"{{queueNo}}"} sebagai variabel dinamis
+              </p>
+            </div>
+          </div>
+          
+          <div className="flex justify-end gap-3 pt-4 border-t border-border/50">
+            <Button variant="outline" onClick={() => setIsCreateTemplateOpen(false)}>
+              Batal
+            </Button>
+            <Button onClick={handleCreateTemplate} disabled={isCreatingTemplate}>
+              {isCreatingTemplate ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
+              Simpan Template
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isManageGroupsOpen} onOpenChange={setIsManageGroupsOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Kelola Grup</DialogTitle>
+            <DialogDescription>Buat grup baru atau kelola anggota grup</DialogDescription>
+          </DialogHeader>
+
+          <div className="flex gap-2 p-1 bg-muted/50 rounded-lg mb-4">
+            <button
+              onClick={() => setManageTab("create")}
+              className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all ${
+                manageTab === "create"
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:bg-muted"
+              }`}
+            >
+              <div className="flex items-center justify-center gap-2">
+                <Plus className="h-4 w-4" />
+                Buat/Hapus Grup
+              </div>
+            </button>
+            <button
+              onClick={() => setManageTab("members")}
+              className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all ${
+                manageTab === "members"
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:bg-muted"
+              }`}
+            >
+              <div className="flex items-center justify-center gap-2">
+                <Users className="h-4 w-4" />
+                Anggota Grup
+              </div>
+            </button>
+          </div>
+
+          {manageTab === "create" && (
+            <div className="space-y-4">
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold">Buat Grup Baru</h3>
+                <Input
+                  placeholder="Nama Grup"
+                  value={newGroupName}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewGroupName(e.target.value)}
+                />
+                <Input
+                  placeholder="Deskripsi (opsional)"
+                  value={newGroupDesc}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewGroupDesc(e.target.value)}
+                />
+                <Button onClick={handleCreateGroup} disabled={isSavingGroup}>
+                  {isSavingGroup ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
+                  Simpan Grup
+                </Button>
+              </div>
+
+              <div className="border-t my-4" />
+
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold">Daftar Grup</h3>
+                <div className="max-h-64 overflow-y-auto space-y-2">
+                  {groups.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-4">Belum ada grup</p>
+                  ) : (
+                    groups.map((group) => (
+                      <div key={group.id} className="flex items-center justify-between p-2 border rounded-lg">
+                        <div>
+                          <p className="font-medium text-sm">{group.name}</p>
+                          <p className="text-xs text-muted-foreground">{group.memberCount} anggota</p>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeleteGroup(group.id, group.name)}
+                          disabled={isDeletingGroup}
+                          className="text-red-500 hover:text-red-700"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {manageTab === "members" && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Pilih Grup</label>
+                <select
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={selectedManageGroup?.id || ""}
+                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
+                    const group = groups.find(g => g.id === e.target.value);
+                    setSelectedManageGroup(group || null);
+                  }}
+                >
+                  <option value="">-- Pilih grup --</option>
+                  {groups.map((group) => (
+                    <option key={group.id} value={group.id}>
+                      {group.name} ({group.memberCount} anggota)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {selectedManageGroup && (
+                <>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Anggota Saat Ini</label>
+                    <div className="rounded-md border border-border max-h-48 overflow-y-auto">
+                      {isLoadingManageMembers ? (
+                        <div className="flex justify-center items-center py-8">
+                          <Loader2 className="h-6 w-6 animate-spin" />
+                        </div>
+                      ) : groupMembersForManage.length === 0 ? (
+                        <div className="text-center py-8 text-muted-foreground">
+                          <p className="text-sm">Belum ada anggota</p>
+                        </div>
+                      ) : (
+                        groupMembersForManage.map((member) => (
+                          <div
+                            key={member.id}
+                            className="flex flex-col px-3 py-2 border-b border-border/50 last:border-0"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <span className="text-sm font-medium">{member.name}</span>
+                                <span className="text-xs text-muted-foreground ml-2">
+                                  {member.phone_number}
+                                </span>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleRemoveMember(member.id, member.name)}
+                                className="text-red-500 hover:text-red-700"
+                              >
+                                <MinusCircle className="h-4 w-4" />
+                              </Button>
+                            </div>
+                            <div className="mt-2 flex items-center gap-2">
+                              <span className="text-xs text-muted-foreground">Nilai Kustom:</span>
+                              <Input
+                                placeholder="Contoh: Rp 120,000 atau Antrian 12"
+                                value={member.custom_value_1 || ""}
+                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleUpdateCustomValue(member.id, e.target.value)}
+                                className="h-8 text-xs flex-1"
+                              />
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Tambah Anggota Baru</label>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        placeholder="Cari pasien..."
+                        value={searchNewMember}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchNewMember(e.target.value)}
+                        className="pl-9"
+                      />
+                    </div>
+                    <Input
+                      placeholder="Nilai Kustom (opsional) - Contoh: Rp 120,000"
+                      value={newMemberCustomValue}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewMemberCustomValue(e.target.value)}
+                      className="mt-2"
+                    />
+                    <div className="rounded-md border border-border max-h-32 overflow-y-auto mt-2">
+                      {filteredAvailablePatients.length === 0 ? (
+                        <div className="text-center py-4 text-muted-foreground">
+                          <p className="text-sm">Tidak ada pasien tersedia</p>
+                        </div>
+                      ) : (
+                        filteredAvailablePatients.map((patient) => (
+                          <div
+                            key={patient.id}
+                            className="flex items-center justify-between px-3 py-2 border-b border-border/50 last:border-0"
+                          >
+                            <div>
+                              <span className="text-sm font-medium">{patient.name}</span>
+                              <span className="text-xs text-muted-foreground ml-2">
+                                {patient.phone_number}
+                              </span>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleAddMember(patient.id, patient.name)}
+                              disabled={isAddingMember}
+                              className="text-green-500 hover:text-green-700"
+                            >
+                              <UserPlus className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+          
+          <div className="flex justify-end gap-3 pt-4 border-t border-border/50 mt-4">
+            <Button variant="outline" onClick={() => setIsManageGroupsOpen(false)}>
+              Tutup
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Success Toast */}
+      {showSuccessToast && (
+        <div className="fixed bottom-4 right-4 z-50 animate-in slide-in-from-right-5 fade-in duration-300">
+          <div className="bg-green-600 text-white rounded-lg shadow-lg px-4 py-3 flex items-center gap-3">
+            <CheckCircle className="h-4 w-4" />
+            <div>
+              <p className="font-semibold text-sm">Berhasil!</p>
+              <p className="text-xs opacity-90">{successMessage}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showErrorToast && (
+        <div className="fixed bottom-4 right-4 z-50 animate-in slide-in-from-right-5 fade-in duration-300">
+          <div className="bg-red-600 text-white rounded-lg shadow-lg px-4 py-3 flex items-center gap-3">
+            <XCircle className="h-4 w-4" />
+            <div>
+              <p className="font-semibold text-sm">Gagal!</p>
+              <p className="text-xs opacity-90">{errorMessage}</p>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
