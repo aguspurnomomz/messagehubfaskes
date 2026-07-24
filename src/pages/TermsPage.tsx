@@ -52,16 +52,33 @@ export function TermsPage() {
             </section>
 
             <section className="space-y-3">
-              <h2 className="text-lg font-bold text-slate-900">3. Batasan Tanggung Jawab Terkait WhatsApp</h2>
-              <div className="p-4 bg-amber-50 rounded-xl border border-amber-100 text-slate-700 space-y-2">
+              <h2 className="text-lg font-bold text-slate-900">
+                3. Batasan Tanggung Jawab & Penyediaan Nomor WhatsApp
+              </h2>
+              <div className="p-4 bg-amber-50 rounded-xl border border-amber-100 text-slate-700 space-y-3 text-sm">
                 <p className="font-semibold text-amber-900">PENTING UNTUK DIKETAHUI:</p>
                 <p>
-                  Layanan kami menggunakan interaksi jaringan pihak ketiga dari platform WhatsApp (Meta Platforms, Inc.). MediflowHub <strong>TIDAK BERTANGGUNG JAWAB</strong> atas tindakan penangguhan, pemblokiran, atau pembatasan nomor WhatsApp milik Pengguna/Klinik yang disebabkan oleh:
+                  Layanan MediflowHub memanfaatkan infrastruktur jaringan pihak ketiga, yaitu platform WhatsApp (Meta Platforms, Inc.) dan penyedia gateway perpesanan. Dengan menggunakan layanan ini, Pengguna/Klinik memahami dan menyetujui ketentuan berikut:
                 </p>
-                <ul className="list-disc pl-5 space-y-1 text-xs">
-                  <li>Laporan indikasi spam atau gangguan berulang dari penerima pesan (pasien).</li>
-                  <li>Pelanggaran terhadap Kebijakan Perdagangan (Commerce Policy) atau Kebijakan Bisnis WhatsApp.</li>
-                  <li>Kegagalan pengiriman pesan akibat gangguan teknis langsung pada server infrastruktur WhatsApp.</li>
+
+                <ul className="list-disc pl-5 space-y-2 text-xs leading-relaxed text-slate-700">
+                  <li>
+                    <strong>Sistem Nomor Pengirim Terpusat:</strong> MediflowHub menyediakan dan mengelola nomor WhatsApp pengirim untuk kebutuhan operasional komunikasi Klinik. Pengguna/Klinik tidak diwajibkan menyediakan nomor pengirim sendiri.
+                  </li>
+                  <li>
+                    <strong>Jaminan Penggantian Nomor:</strong> Apabila nomor pengirim mengalami penangguhan atau pemblokiran (<em>banned</em>) oleh pihak WhatsApp, MediflowHub bertanggung jawab penuh untuk melakukan proses penggantian nomor pengirim agar layanan komunikasi Klinik dapat berjalan kembali.
+                  </li>
+                  <li>
+                    <strong>Tanggung Jawab Isi Pesan & Kepatuhan:</strong> MediflowHub <strong>TIDAK BERTANGGUNG JAWAB</strong> atas isi materi pesan, kerugian bisnis, maupun dampak hukum yang timbul akibat:
+                    <ul className="list-[circle] pl-5 mt-1 space-y-1">
+                      <li>Pengiriman pesan masal (<em>spam</em>), promosi berlebihan, atau pesan tanpa persetujuan penerima (<em>opt-in</em>) yang memicu laporan dari pasien.</li>
+                      <li>Pelanggaran terhadap <em>Commerce Policy</em>, <em>Business Policy</em>, atau ketentuan resmi WhatsApp lainnya melalui instruksi pengiriman pesan dari pihak Klinik.</li>
+                      <li>Kegagalan atau penundaan pengiriman pesan yang disebabkan oleh gangguan teknis internal pada server infrastruktur WhatsApp (Meta) maupun jaringan telekomunikasi terkait.</li>
+                    </ul>
+                  </li>
+                  <li>
+                    <strong>Hak Pembatasan Akses:</strong> MediflowHub berhak menangguhkan sementara akun Klinik jika ditemukan pola pengiriman pesan yang secara sengaja dan berulang kali melanggar aturan anti-spam WhatsApp sehingga membahayakan reputasi infrastruktur nomor pengirim MediflowHub.
+                  </li>
                 </ul>
               </div>
             </section>
