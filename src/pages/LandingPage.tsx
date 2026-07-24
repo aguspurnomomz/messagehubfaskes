@@ -229,7 +229,7 @@ export function LandingPage() {
       <section id="cta-section" className="bg-slate-900 text-white py-20 px-6 border-t border-slate-800 scroll-mt-20">
         <div className="max-w-4xl mx-auto text-center space-y-8" data-aos="zoom-in">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-800 text-indigo-400 text-sm font-medium border border-slate-700">
-            <ShieldCheck className="h-4 w-4" /> Siap Membantu Operasional Faskes Anda
+            <ShieldCheck className="h-4 w-4" /> Siap Membantu Operasional Komunikasi Faskes Anda
           </div>
           <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight">
             Ingin Mengintegrasikan Sistem Klinik Anda?
