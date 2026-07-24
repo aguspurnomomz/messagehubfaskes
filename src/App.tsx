@@ -11,6 +11,7 @@ import { SettingsPage } from "@/pages/SettingsPage";
 import { ProfilePage } from "@/pages/ProfilePage";
 import { LandingPage } from "@/pages/LandingPage";
 import { TermsPage } from "@/pages/TermsPage";
+import { InboxPage } from "@/pages/InboxPage";
 
 // ========================================================
 // KOMPONEN PEMBANTU: Mengembalikan Posisi Scroll ke Atas
@@ -47,6 +48,7 @@ export default function App() {
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/patients" element={<PatientsPage />} />
             <Route path="/broadcast" element={<BroadcastPage />} />
+            <Route path="/inbox" element={<InboxPage />} /> 
             <Route path="/schedule" element={<ScheduleBroadcastPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/profile" element={<ProfilePage />} />
