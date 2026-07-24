@@ -50,7 +50,7 @@ export function LoginPage() {
         );
         
         setIsLoading(false);
-        navigate("/", { replace: true });
+        navigate("/dashboard", { replace: true });
       }
     } catch (err: any) {
       console.error("Login error:", err);
@@ -164,7 +164,7 @@ export function LoginPage() {
 
         <div className="mt-8 text-center">
           <p className="text-xs text-muted-foreground">
-            &copy; {new Date().getFullYear()} HealthTech Message Hub. All rights reserved.
+            &copy; {new Date().getFullYear()} MediflowHub. All rights reserved.
           </p>
         </div>
       </div>

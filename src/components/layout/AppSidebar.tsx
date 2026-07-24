@@ -18,7 +18,7 @@ const navItems: {
   icon: LucideIcon;
   end?: boolean;
 }[] = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
+  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/patients", label: "Data Kontak Pasien", icon: Users },
   { to: "/broadcast", label: "Siaran Pesan", icon: Send },
   { to: "/schedule", label: "Penjadwalan", icon: Clock },
@@ -111,8 +111,8 @@ export function AppSidebar() {
       
       <div className="border-t border-border p-4">
          <p className="text-xs text-muted-foreground">
-            Sistem perpesanan aman untuk tim klinis. 
-            Alur kerja yang siap sesuai HIPAA sedang dalam pengembangan.
+            Sistem pengiriman pesan untuk lingkup Faskes. 
+            Alur kerja disesuaikan dengan HIPAA sedang dalam pengembangan.
           </p>
       </div>
     </aside>
