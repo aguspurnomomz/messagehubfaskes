@@ -269,7 +269,7 @@ export function LandingPage() {
               Syarat & Ketentuan
             </Link>
           </div>
-          <p className="mt-2 sm:mt-0">HealthTech Message Hub — Pusat Komunikasi Faskes Terpadu.</p>
+          <p className="mt-2 sm:mt-0">HealthTech Message Hub — Layanan Hub Pesan untuk Faskes dan Klinik.</p>
         </div>
       </footer>
     </div>
