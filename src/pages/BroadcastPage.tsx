@@ -15,7 +15,31 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Send, Smartphone, User, Clock, FileText,AlertCircle, Search, Phone, CheckCircle, XCircle, Shield, Users, Loader2, Plus, Settings, Trash2, MinusCircle, UserPlus, Variable, PlusCircle } from "lucide-react";
+import { 
+  Send, 
+  Smartphone, 
+  User, 
+  Clock, 
+  FileText, 
+  AlertCircle, 
+  Search, 
+  Phone, 
+  CheckCircle, 
+  XCircle, 
+  Shield, 
+  Users, 
+  Loader2, 
+  Plus, 
+  Settings, 
+  Trash2, 
+  MinusCircle, 
+  UserPlus, 
+  Variable, 
+  PlusCircle,
+  Activity,        // Icon untuk Aktivitas Terbaru
+  MessageCircle,   // Icon untuk Tipe Pesan
+  Calendar         // Icon untuk Ulang Tahun
+} from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 
 interface PatientOption {
@@ -68,6 +92,17 @@ interface MessageTemplate {
   created_at: string;
 }
 
+// Interface Riwayat Aktivitas Terbaru
+interface RecentDelivery {
+  id: string;
+  patientName: string;
+  messageType: string;
+  messageContent: string;
+  status: "sent" | "failed";
+  timestamp: string;
+  created_at: string;
+}
+
 type SendMode = "single" | "group";
 type ManageTab = "create" | "members";
 
@@ -107,6 +142,12 @@ export function BroadcastPage() {
   const [newTemplateContent, setNewTemplateContent] = useState("");
   const [isCreatingTemplate, setIsCreatingTemplate] = useState(false);
   
+  // State Aktivitas Terbaru & Pagination
+  const [recentDeliveries, setRecentDeliveries] = useState<RecentDelivery[]>([]);
+  const [isLoadingDeliveries, setIsLoadingDeliveries] = useState(false);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const itemsPerPage = 5;
+
   const [isSending, setIsSending] = useState(false);
   const [sendProgress, setSendProgress] = useState<SendProgress>({ current: 0, total: 0, success: 0, failed: 0 });
   const [showSuccessToast, setShowSuccessToast] = useState(false);
@@ -129,6 +170,7 @@ export function BroadcastPage() {
     fetchGroups();
     fetchClinicSettings();
     fetchTemplates();
+    fetchRecentDeliveries();
   }, []);
 
   useEffect(() => {
@@ -159,6 +201,81 @@ export function BroadcastPage() {
       setGroupMembersForManage([]);
     }
   }, [selectedManageGroup, manageTab]);
+
+  const fetchRecentDeliveries = async () => {
+    setIsLoadingDeliveries(true);
+    try {
+      const { data, error } = await supabase
+        .from('message_logs')
+        .select(`
+          id,
+          message_type,
+          message_content,
+          status,
+          created_at,
+          patient_id,
+          patients!inner (
+            name
+          )
+        `)
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      if (error) throw error;
+
+      const deliveries: RecentDelivery[] = (data || []).map((item: any) => ({
+        id: item.id,
+        patientName: item.patients?.name || 'Unknown',
+        messageType: item.message_type,
+        messageContent: item.message_content.substring(0, 80) + (item.message_content.length > 80 ? '...' : ''),
+        status: item.status,
+        timestamp: item.created_at,
+        created_at: item.created_at
+      }));
+
+      setRecentDeliveries(deliveries);
+      setCurrentPage(1); // Reset ke halaman 1 saat fetch ulang
+    } catch (error) {
+      console.error('Error fetching recent deliveries:', error);
+    } finally {
+      setIsLoadingDeliveries(false);
+    }
+  };
+
+  const getTimeAgo = (timestamp: string) => {
+    const now = Date.now();
+    const diff = now - new Date(timestamp).getTime();
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(diff / 3600000);
+    const days = Math.floor(diff / 86400000);
+
+    if (minutes < 1) return "Baru saja";
+    if (minutes < 60) return `${minutes} menit yang lalu`;
+    if (hours < 24) return `${hours} jam yang lalu`;
+    if (days < 7) return `${days} hari yang lalu`;
+    return new Date(timestamp).toLocaleDateString('id-ID');
+  };
+
+  const getMessageTypeDisplay = (type: string) => {
+    const mapping: Record<string, { icon: React.ReactNode; label: string; color: string }> = {
+      Invoice: { icon: <FileText className="h-3 w-3" />, label: "Invoice", color: "text-blue-600 bg-blue-50" },
+      "Lab Result": { icon: <Activity className="h-3 w-3" />, label: "Hasil Lab", color: "text-purple-600 bg-purple-50" },
+      Queue: { icon: <Clock className="h-3 w-3" />, label: "Antrian", color: "text-yellow-600 bg-yellow-50" },
+      Birthday: { icon: <Calendar className="h-3 w-3" />, label: "Ulang Tahun", color: "text-pink-600 bg-pink-50" }
+    };
+    return mapping[type] || { icon: <MessageCircle className="h-3 w-3" />, label: type, color: "text-gray-600 bg-gray-50" };
+  };
+
+  // Perhitungan Pagination untuk Aktivitas Terbaru
+  const totalPages = Math.ceil(recentDeliveries.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedDeliveries = recentDeliveries.slice(startIndex, startIndex + itemsPerPage);
+
+  const handlePageChange = (newPage: number) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      setCurrentPage(newPage);
+    }
+  };
 
   const fetchTemplates = async () => {
     setIsLoadingTemplates(true);
@@ -275,42 +392,42 @@ export function BroadcastPage() {
     }
   };
 
-const handleDeleteTemplate = async (templateId: string, templateTitle: string) => {
-  if (!confirm(`Apakah Anda yakin ingin menghapus template "${templateTitle}"?`)) return;
+  const handleDeleteTemplate = async (templateId: string, templateTitle: string) => {
+    if (!confirm(`Apakah Anda yakin ingin menghapus template "${templateTitle}"?`)) return;
 
-  try {
-    const { error } = await supabase
-      .from('message_templates')
-      .delete()
-      .eq('id', templateId);
+    try {
+      const { error } = await supabase
+        .from('message_templates')
+        .delete()
+        .eq('id', templateId);
 
-    if (error) throw error;
+      if (error) throw error;
 
-    const updatedTemplates = templates.filter(t => t.id !== templateId);
-    setTemplates(updatedTemplates);
+      const updatedTemplates = templates.filter(t => t.id !== templateId);
+      setTemplates(updatedTemplates);
 
-    if (selectedTemplateId === templateId) {
-      if (updatedTemplates.length > 0) {
-        setSelectedTemplateId(updatedTemplates[0].id);
-        setSelectedTemplateTitle(updatedTemplates[0].title);
-        setMessage(updatedTemplates[0].content);
-      } else {
-        setSelectedTemplateId(null);
-        setSelectedTemplateTitle("");
-        setMessage("");
+      if (selectedTemplateId === templateId) {
+        if (updatedTemplates.length > 0) {
+          setSelectedTemplateId(updatedTemplates[0].id);
+          setSelectedTemplateTitle(updatedTemplates[0].title);
+          setMessage(updatedTemplates[0].content);
+        } else {
+          setSelectedTemplateId(null);
+          setSelectedTemplateTitle("");
+          setMessage("");
+        }
       }
-    }
 
-    setShowSuccessToast(true);
-    setSuccessMessage(`Template "${templateTitle}" berhasil dihapus!`);
-    setTimeout(() => setShowSuccessToast(false), 3000);
-  } catch (error: any) {
-    console.error('Error deleting template:', error);
-    setErrorMessage(error.message || "Gagal menghapus template");
-    setShowErrorToast(true);
-    setTimeout(() => setShowErrorToast(false), 3000);
-  }
-};
+      setShowSuccessToast(true);
+      setSuccessMessage(`Template "${templateTitle}" berhasil dihapus!`);
+      setTimeout(() => setShowSuccessToast(false), 3000);
+    } catch (error: any) {
+      console.error('Error deleting template:', error);
+      setErrorMessage(error.message || "Gagal menghapus template");
+      setShowErrorToast(true);
+      setTimeout(() => setShowErrorToast(false), 3000);
+    }
+  };
 
   const handleTemplateSelect = (template: MessageTemplate) => {
     setSelectedTemplateId(template.id);
@@ -715,6 +832,9 @@ const handleDeleteTemplate = async (templateId: string, templateTitle: string) =
         delivery_time: new Date().toISOString(),
         fonte_response_id: fonteResponseId,
       });
+
+      // Reload Aktivitas Terbaru secara otomatis saat ada pesan terkirim
+      fetchRecentDeliveries();
     } catch (error: any) {
       console.error('Error saving message log:', error);
     }
@@ -911,11 +1031,6 @@ const handleDeleteTemplate = async (templateId: string, templateTitle: string) =
     patient.phone_number.includes(searchQuery)
   );
 
-  // const getMaskedApiKey = (key: string) => {
-  //   if (!key || key.length < 10) return "Belum dikonfigurasi";
-  //   return key.slice(0, 8) + "..." + key.slice(-4);
-  // };
-
   const isSendDisabled = () => {
     if (sendMode === "single") {
       return isSending || !selectedPatient || !message.trim() || !clinicSettings?.fonteApiKey;
@@ -945,6 +1060,7 @@ const handleDeleteTemplate = async (templateId: string, templateTitle: string) =
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         
+        {/* PANEL KOMPOSER PESAN */}
         <div className="space-y-4">
           <Card className="h-full">
             <CardHeader>
@@ -1299,6 +1415,7 @@ const handleDeleteTemplate = async (templateId: string, templateTitle: string) =
           </Card>
         </div>
 
+        {/* PANEL PRATINJAU LANGSUNG */}
         <div className="space-y-4">
           <Card className="h-full">
             <CardHeader>
@@ -1396,6 +1513,134 @@ const handleDeleteTemplate = async (templateId: string, templateTitle: string) =
         </div>
       </div>
 
+      {/* SECTION: AKTIVITAS TERBARU (DENGAN PAGINATION PER 5 PESAN) */}
+      <Card className="border-border/80 shadow-sm mt-6">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Activity className="h-5 w-5 text-primary" />
+                Aktivitas Terbaru
+              </CardTitle>
+              <CardDescription>
+                Riwayat pengiriman pesan terbaru
+              </CardDescription>
+            </div>
+            <div className="text-xs text-muted-foreground">
+              Menampilkan {recentDeliveries.length} riwayat terakhir
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {isLoadingDeliveries ? (
+              <div className="flex justify-center items-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              </div>
+            ) : recentDeliveries.length === 0 ? (
+              <div className="text-center py-8">
+                <MessageCircle className="h-12 w-12 text-muted-foreground mx-auto mb-3 opacity-40" />
+                <p className="text-sm text-muted-foreground">Belum ada pengiriman pesan</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Kirim pesan broadcast pertama Anda untuk melihat riwayat aktivitas di sini
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-3">
+                  {paginatedDeliveries.map((delivery) => {
+                    const typeDisplay = getMessageTypeDisplay(delivery.messageType);
+                    return (
+                      <div 
+                        key={delivery.id} 
+                        className="flex items-center justify-between p-3 rounded-lg border border-border/50 hover:bg-muted/50 transition-colors"
+                      >
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                          <div className="flex-shrink-0">
+                            {delivery.status === "sent" ? (
+                              <CheckCircle className="h-5 w-5 text-green-500" />
+                            ) : (
+                              <XCircle className="h-5 w-5 text-red-500" />
+                            )}
+                          </div>
+                          
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-semibold text-sm truncate text-foreground">
+                                {delivery.patientName}
+                              </span>
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${typeDisplay.color}`}>
+                                {typeDisplay.icon}
+                                {typeDisplay.label}
+                              </span>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-1 truncate">
+                              {delivery.messageContent}
+                            </p>
+                            <div className="flex items-center gap-2 mt-1">
+                              <Clock className="h-3 w-3 text-muted-foreground" />
+                              <span className="text-xs text-muted-foreground">
+                                {getTimeAgo(delivery.created_at)}
+                              </span>
+                            </div>
+                          </div>
+                          
+                          <div className="flex-shrink-0 ml-2">
+                            <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
+                              delivery.status === "sent" 
+                                ? "bg-green-100 text-green-700 border border-green-200" 
+                                : "bg-red-100 text-red-700 border border-red-200"
+                            }`}>
+                              <span className={`h-1.5 w-1.5 rounded-full ${
+                                delivery.status === "sent" ? "bg-green-500" : "bg-red-500"
+                              }`} />
+                              {delivery.status === "sent" ? "Terkirim" : "Gagal"}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* KONTROL PAGINATION */}
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-between pt-4 border-t border-border/50 text-xs text-muted-foreground">
+                    <span>
+                      Menampilkan {startIndex + 1} - {Math.min(startIndex + itemsPerPage, recentDeliveries.length)} dari {recentDeliveries.length} riwayat
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handlePageChange(currentPage - 1)}
+                        disabled={currentPage === 1}
+                        className="h-8 px-3 text-xs"
+                      >
+                        Sebelumnya
+                      </Button>
+                      <span className="font-medium text-foreground px-2">
+                        {currentPage} / {totalPages}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handlePageChange(currentPage + 1)}
+                        disabled={currentPage === totalPages}
+                        className="h-8 px-3 text-xs"
+                      >
+                        Selanjutnya
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* DIALOG TEMPLATE PESAN */}
       <Dialog open={isTemplateDialogOpen} onOpenChange={setIsTemplateDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
@@ -1468,6 +1713,7 @@ const handleDeleteTemplate = async (templateId: string, templateTitle: string) =
         </DialogContent>
       </Dialog>
 
+      {/* DIALOG BUAT TEMPLATE */}
       <Dialog open={isCreateTemplateOpen} onOpenChange={setIsCreateTemplateOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -1511,6 +1757,7 @@ const handleDeleteTemplate = async (templateId: string, templateTitle: string) =
         </DialogContent>
       </Dialog>
 
+      {/* DIALOG KELOLA GRUP */}
       <Dialog open={isManageGroupsOpen} onOpenChange={setIsManageGroupsOpen}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
@@ -1730,7 +1977,7 @@ const handleDeleteTemplate = async (templateId: string, templateTitle: string) =
         </DialogContent>
       </Dialog>
 
-      {/* Success Toast */}
+      {/* SUCCESS TOAST */}
       {showSuccessToast && (
         <div className="fixed bottom-4 right-4 z-50 animate-in slide-in-from-right-5 fade-in duration-300">
           <div className="bg-green-600 text-white rounded-lg shadow-lg px-4 py-3 flex items-center gap-3">
@@ -1743,6 +1990,7 @@ const handleDeleteTemplate = async (templateId: string, templateTitle: string) =
         </div>
       )}
 
+      {/* ERROR TOAST */}
       {showErrorToast && (
         <div className="fixed bottom-4 right-4 z-50 animate-in slide-in-from-right-5 fade-in duration-300">
           <div className="bg-red-600 text-white rounded-lg shadow-lg px-4 py-3 flex items-center gap-3">

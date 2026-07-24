@@ -3,6 +3,7 @@ import {
   Activity, 
   ArrowUpRight, 
   MessageCircle, 
+  Inbox, // <-- Import Icon Inbox untuk Pesan Masuk
   TrendingUp, 
   TrendingDown,
   Send,
@@ -28,6 +29,7 @@ import { supabase } from "@/lib/supabaseClient";
 
 interface DashboardStats {
   totalMessagesToday: number;
+  totalIncomingToday: number; // <-- Properti Baru untuk Pesan Masuk Hari Ini
   deliverySuccessRate: number;
   upcomingBirthdays: number;
   messagesTrend: number;
@@ -63,6 +65,7 @@ export function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [stats, setStats] = useState<DashboardStats>({
     totalMessagesToday: 0,
+    totalIncomingToday: 0, // <-- Initial state
     deliverySuccessRate: 0,
     upcomingBirthdays: 0,
     messagesTrend: 0,
@@ -77,7 +80,6 @@ export function DashboardPage() {
   useEffect(() => {
     fetchDashboardData();
   }, []);
-
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -109,6 +111,7 @@ export function DashboardPage() {
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
 
+      // 1. Hitung Pesan Keluar/Terkirim Hari Ini (message_logs)
       const { count: messagesToday, error: messagesError } = await supabase
         .from('message_logs')
         .select('*', { count: 'exact', head: true })
@@ -117,6 +120,16 @@ export function DashboardPage() {
 
       if (messagesError) throw messagesError;
 
+      // 2. Hitung Pesan Masuk Hari Ini (incoming_message_logs)
+      const { count: incomingToday, error: incomingError } = await supabase
+        .from('incoming_message_logs')
+        .select('*', { count: 'exact', head: true })
+        .gte('created_at', today.toISOString())
+        .lt('created_at', tomorrow.toISOString());
+
+      if (incomingError) throw incomingError;
+
+      // 3. Hitung Tingkat Pengiriman Sukses
       const { data: allMessages, error: allError } = await supabase
         .from('message_logs')
         .select('status');
@@ -153,6 +166,7 @@ export function DashboardPage() {
 
       setStats({
         totalMessagesToday: messagesToday || 0,
+        totalIncomingToday: incomingToday || 0, // <-- Save ke state
         deliverySuccessRate: Math.round(successRate * 10) / 10,
         upcomingBirthdays: upcomingCount,
         messagesTrend: Math.round(messagesTrend),
@@ -320,14 +334,25 @@ export function DashboardPage() {
 
   const maxMessages = Math.max(...messageTrends.map(d => d.messages), 1);
 
+  // DAFTAR KARTU STATISTIK (DAPAT DIKLIK & TERMASUK KARTU PESAN MASUK)
   const statsCards = [
     {
-      title: "Pesan Hari Ini",
+      title: "Pesan Terkirim Hari Ini",
       value: stats.totalMessagesToday.toString(),
       trend: `${stats.messagesTrend > 0 ? '+' : ''}${stats.messagesTrend}%`,
       trendDirection: stats.messagesTrend >= 0 ? "up" : "down",
       trendText: "vs minggu lalu",
       icon: MessageCircle,
+      onClick: () => navigate("/broadcast"),
+    },
+    {
+      title: "Pesan Masuk Hari Ini",
+      value: stats.totalIncomingToday.toString(),
+      trend: "Real-time",
+      trendDirection: "up",
+      trendText: "dari balasan pasien",
+      icon: Inbox,
+      onClick: () => navigate("/inbox"),
     },
     {
       title: "Tingkat Pengiriman",
@@ -366,9 +391,16 @@ export function DashboardPage() {
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {/* GRID KARTU STATISTIK: DIUBAH MENJADI 4 KOLOM */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {statsCards.map((stat) => (
-          <Card key={stat.title} className="border-border/80 shadow-sm hover:shadow-md transition-shadow">
+          <Card 
+            key={stat.title} 
+            className={`border-border/80 shadow-sm transition-all ${
+              stat.onClick ? "hover:shadow-md cursor-pointer hover:border-primary/50" : ""
+            }`}
+            onClick={stat.onClick}
+          >
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">
                 {stat.title}
@@ -486,10 +518,18 @@ export function DashboardPage() {
               <Button 
                 variant="outline" 
                 className="w-full justify-start gap-2"
+                onClick={() => navigate("/inbox")}
+              >
+                <Inbox className="h-4 w-4" />
+                Cek Pesan Masuk
+              </Button>
+              <Button 
+                variant="outline" 
+                className="w-full justify-start gap-2"
                 onClick={() => navigate("/patients")}
               >
                 <UserPlus className="h-4 w-4" />
-                Tambah Pasien Baru
+                Tambah Kontak Baru
               </Button>
               <Button 
                 variant="outline" 
