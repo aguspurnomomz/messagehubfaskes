@@ -25,33 +25,42 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ status: false, message: 'Invalid payload' }), { status: 400 })
     }
 
-    // 3. Inisialisasi Supabase Client dengan Service Role Key (untuk bypass RLS saat write)
+    // 3. Inisialisasi Supabase Client dengan Service Role Key
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     )
 
     // 4. Normalisasi nomor telepon & Lookup patient_id dari tabel 'patients'
-    // Mengubah nomor misal "+62812345" atau "0812345" agar cocok dengan format di DB
-    const cleanSender = sender.replace(/[^0-9]/g, '')
-    
-    // Cari pasien berdasarkan phone_number
+    const cleanSender = sender.replace(/[^0-9]/g, '') // Menghasilkan "6281324439591"
+
+    // Buat variasi format lokal (08xxx) dan internasional (628xxx)
+    let localPhone = cleanSender
+    let intlPhone = cleanSender
+
+    if (cleanSender.startsWith('62')) {
+      localPhone = '0' + cleanSender.slice(2) // Mengubah "6281324439591" -> "081324439591"
+    } else if (cleanSender.startsWith('0')) {
+      intlPhone = '62' + cleanSender.slice(1)  // Mengubah "081324439591" -> "6281324439591"
+    }
+
+    // Cari di tabel patients dengan mencocokkan seluruh kemungkinan format
     const { data: patient } = await supabaseAdmin
       .from('patients')
       .select('id')
-      .or(`phone_number.eq.${cleanSender},phone_number.eq.+${cleanSender}`)
+      .or(`phone_number.eq.${cleanSender},phone_number.eq.${localPhone},phone_number.eq.${intlPhone},phone_number.eq.+${intlPhone}`)
       .maybeSingle()
 
     // 5. Simpan pesan masuk ke tabel incoming_message_logs
     const { error: insertError } = await supabaseAdmin
       .from('incoming_message_logs')
       .insert({
-        patient_id: patient?.id || null,
+        patient_id: patient?.id || null, // Sekarang otomatis terisi ID Agus Purnomo
         sender_number: sender,
         sender_name: name || null,
         message_content: message,
         fonnte_device: device,
-        raw_payload: body // Menyimpan backup JSON lengkap dari Fonnte
+        raw_payload: body
       })
 
     if (insertError) {
