@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Card,
   CardContent,
@@ -13,36 +13,68 @@ import {
   Search,
   User,
   Phone,
-  Clock,
   RefreshCw,
   Loader2,
   CheckCircle2,
   HelpCircle,
+  Send,
 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 
-interface IncomingMessage {
+interface ChatItem {
   id: string;
-  patient_id: string | null;
+  sender_type: "inbound" | "outbound";
+  message_content: string;
+  created_at: string;
+}
+
+interface ContactConversation {
   sender_number: string;
   sender_name: string | null;
-  message_content: string;
-  fonnte_device: string | null;
-  created_at: string;
-  patients?: {
-    name: string;
-    phone_number: string;
-  } | null;
+  patient_id: string | null;
+  patient_name: string | null;
+  last_message: string;
+  last_message_time: string;
 }
 
 export function InboxPage() {
-  const [messages, setMessages] = useState<IncomingMessage[]>([]);
+  const [conversations, setConversations] = useState<ContactConversation[]>([]);
+  const [activeNumber, setActiveNumber] = useState<string | null>(null);
+  const [activeChatHistory, setActiveChatHistory] = useState<ChatItem[]>([]);
+  
   const [loading, setLoading] = useState<boolean>(true);
+  const [loadingChat, setLoadingChat] = useState<boolean>(false);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>("");
-  const [selectedMessage, setSelectedMessage] = useState<IncomingMessage | null>(null);
+  
+  const chatBottomRef = useRef<HTMLDivElement>(null);
 
-  const fetchIncomingMessages = async (showRefreshLoader = false) => {
+  useEffect(() => {
+    chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [activeChatHistory]);
+
+  // Helper untuk Format Pembatas Tanggal ala WhatsApp
+  const formatDateDivider = (dateString: string) => {
+    const msgDate = new Date(dateString);
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    const isToday = msgDate.toDateString() === today.toDateString();
+    const isYesterday = msgDate.toDateString() === yesterday.toDateString();
+
+    if (isToday) return "Hari ini";
+    if (isYesterday) return "Kemarin";
+
+    return msgDate.toLocaleDateString("id-ID", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  };
+
+  const fetchConversations = async (showRefreshLoader = false) => {
     if (showRefreshLoader) setIsRefreshing(true);
     try {
       const { data, error } = await supabase
@@ -53,7 +85,6 @@ export function InboxPage() {
           sender_number,
           sender_name,
           message_content,
-          fonnte_device,
           created_at,
           patients ( name, phone_number )
         `)
@@ -62,31 +93,103 @@ export function InboxPage() {
       if (error) throw error;
 
       if (data) {
-        const formattedData = data as unknown as IncomingMessage[];
-        setMessages(formattedData);
-        if (formattedData.length > 0 && !selectedMessage) {
-          setSelectedMessage(formattedData[0]);
+        const conversationMap = new Map<string, ContactConversation>();
+
+        data.forEach((msg: any) => {
+          const number = msg.sender_number;
+          if (!conversationMap.has(number)) {
+            conversationMap.set(number, {
+              sender_number: number,
+              sender_name: msg.sender_name,
+              patient_id: msg.patient_id,
+              patient_name: msg.patients?.name || null,
+              last_message: msg.message_content,
+              last_message_time: msg.created_at,
+            });
+          }
+        });
+
+        const conversationList = Array.from(conversationMap.values());
+        setConversations(conversationList);
+
+        if (conversationList.length > 0 && !activeNumber) {
+          setActiveNumber(conversationList[0].sender_number);
         }
       }
     } catch (err) {
-      console.error("Error fetching incoming messages:", err);
+      console.error("Error fetching conversations:", err);
     } finally {
       setLoading(false);
       setIsRefreshing(false);
     }
   };
 
-  useEffect(() => {
-    fetchIncomingMessages();
+  const fetchChatHistory = async (phone: string) => {
+    setLoadingChat(true);
+    try {
+      const cleanPhone = phone.replace(/\D/g, "");
+      const searchPattern = cleanPhone.startsWith("62") ? cleanPhone.slice(2) : cleanPhone;
 
-    // Setup Realtime Listener Supabase
+      const { data: inboundData } = await supabase
+        .from("incoming_message_logs")
+        .select("id, message_content, created_at")
+        .eq("sender_number", phone);
+
+      const { data: patientData } = await supabase
+        .from("patients")
+        .select("id")
+        .ilike("phone_number", `%${searchPattern}%`)
+        .maybeSingle();
+
+      let outboundData: any[] = [];
+      if (patientData) {
+        const { data: logs } = await supabase
+          .from("message_logs")
+          .select("id, message_content, created_at, delivery_time")
+          .eq("patient_id", patientData.id);
+        
+        if (logs) outboundData = logs;
+      }
+
+      const formattedInbound: ChatItem[] = (inboundData || []).map((item) => ({
+        id: `in-${item.id}`,
+        sender_type: "inbound",
+        message_content: item.message_content,
+        created_at: item.created_at,
+      }));
+
+      const formattedOutbound: ChatItem[] = outboundData.map((item) => ({
+        id: `out-${item.id}`,
+        sender_type: "outbound",
+        message_content: item.message_content,
+        created_at: item.delivery_time || item.created_at,
+      }));
+
+      const combinedHistory = [...formattedInbound, ...formattedOutbound].sort(
+        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      );
+
+      setActiveChatHistory(combinedHistory);
+    } catch (err) {
+      console.error("Error fetching chat history:", err);
+    } finally {
+      setLoadingChat(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchConversations();
+
     const channel = supabase
-      .channel("realtime_incoming_inbox")
+      .channel("realtime_inbox_chat")
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "incoming_message_logs" },
         () => {
-          fetchIncomingMessages();
+          fetchConversations();
+          if (activeNumber) {
+            fetchChatHistory(activeNumber);
+          }
         }
       )
       .subscribe();
@@ -96,16 +199,23 @@ export function InboxPage() {
     };
   }, []);
 
-  // Filter pencarian berdasarkan nama pasien, nomor WA, atau isi pesan
-  const filteredMessages = messages.filter((msg) => {
-    const patientName = msg.patients?.name || msg.sender_name || "";
+  useEffect(() => {
+    if (activeNumber) {
+      fetchChatHistory(activeNumber);
+    }
+  }, [activeNumber]);
+
+  const filteredConversations = conversations.filter((c) => {
+    const displayName = c.patient_name || c.sender_name || c.sender_number;
     const query = searchQuery.toLowerCase();
     return (
-      patientName.toLowerCase().includes(query) ||
-      msg.sender_number.includes(query) ||
-      msg.message_content.toLowerCase().includes(query)
+      displayName.toLowerCase().includes(query) ||
+      c.sender_number.includes(query) ||
+      c.last_message.toLowerCase().includes(query)
     );
   });
+
+  const activeContact = conversations.find((c) => c.sender_number === activeNumber);
 
   return (
     <div className="space-y-6">
@@ -119,7 +229,10 @@ export function InboxPage() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => fetchIncomingMessages(true)}
+          onClick={() => {
+            fetchConversations(true);
+            if (activeNumber) fetchChatHistory(activeNumber);
+          }}
           disabled={isRefreshing}
           className="gap-2"
         >
@@ -129,6 +242,7 @@ export function InboxPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* PANEL KIRI: DAFTAR KONTAK */}
         <div className="lg:col-span-5 space-y-4">
           <Card className="h-[calc(100vh-220px)] flex flex-col">
             <CardHeader className="pb-3 border-b">
@@ -147,25 +261,25 @@ export function InboxPage() {
                 <div className="flex justify-center items-center py-12">
                   <Loader2 className="h-6 w-6 animate-spin text-primary" />
                 </div>
-              ) : filteredMessages.length === 0 ? (
+              ) : filteredConversations.length === 0 ? (
                 <div className="text-center py-12 px-4 text-muted-foreground">
                   <MessageSquare className="h-10 w-10 mx-auto mb-2 opacity-40" />
-                  <p className="text-sm font-medium">Belum ada pesan masuk</p>
+                  <p className="text-sm font-medium">Belum ada percakapan</p>
                   <p className="text-xs mt-1">
                     Pesan balasan dari pasien akan otomatis muncul di sini.
                   </p>
                 </div>
               ) : (
                 <div className="divide-y divide-border">
-                  {filteredMessages.map((msg) => {
-                    const isSelected = selectedMessage?.id === msg.id;
-                    const displayName = msg.patients?.name || msg.sender_name || "Pasien Baru";
-                    const isRegistered = !!msg.patients?.name;
+                  {filteredConversations.map((item) => {
+                    const isSelected = activeNumber === item.sender_number;
+                    const displayName = item.patient_name || item.sender_name || "Pasien Baru";
+                    const isRegistered = !!item.patient_name;
 
                     return (
                       <button
-                        key={msg.id}
-                        onClick={() => setSelectedMessage(msg)}
+                        key={item.sender_number}
+                        onClick={() => setActiveNumber(item.sender_number)}
                         className={`w-full text-left p-4 transition-colors flex items-start gap-3 hover:bg-muted/50 ${
                           isSelected ? "bg-muted border-l-4 border-l-primary" : ""
                         }`}
@@ -185,14 +299,14 @@ export function InboxPage() {
                               {displayName}
                             </span>
                             <span className="text-[11px] text-muted-foreground shrink-0 ml-2">
-                              {new Date(msg.created_at).toLocaleTimeString("id-ID", {
+                              {new Date(item.last_message_time).toLocaleTimeString("id-ID", {
                                 hour: "2-digit",
                                 minute: "2-digit",
                               })}
                             </span>
                           </div>
-                          <p className="text-xs text-muted-foreground line-clamp-2 break-words">
-                            {msg.message_content}
+                          <p className="text-xs text-muted-foreground line-clamp-1 break-words">
+                            {item.last_message}
                           </p>
                         </div>
                       </button>
@@ -204,11 +318,12 @@ export function InboxPage() {
           </Card>
         </div>
 
+        {/* PANEL KANAN: CHAT THREAD DENGAN DATE DIVIDER */}
         <div className="lg:col-span-7">
           <Card className="h-[calc(100vh-220px)] flex flex-col">
-            {selectedMessage ? (
+            {activeContact ? (
               <>
-                <CardHeader className="border-b pb-4">
+                <CardHeader className="border-b pb-4 shadow-sm bg-white rounded-t-xl">
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3">
                       <div className="h-11 w-11 rounded-full bg-primary/10 flex items-center justify-center text-primary">
@@ -216,28 +331,20 @@ export function InboxPage() {
                       </div>
                       <div>
                         <CardTitle className="text-lg">
-                          {selectedMessage.patients?.name ||
-                            selectedMessage.sender_name ||
+                          {activeContact.patient_name ||
+                            activeContact.sender_name ||
                             "Pasien Belum Terdaftar"}
                         </CardTitle>
                         <CardDescription className="flex items-center gap-2 mt-1">
-                          <span className="flex items-center gap-1">
+                          <span className="flex items-center gap-1 font-mono">
                             <Phone className="h-3 w-3" />
-                            {selectedMessage.sender_number}
-                          </span>
-                          <span>•</span>
-                          <span className="flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            {new Date(selectedMessage.created_at).toLocaleString("id-ID", {
-                              dateStyle: "medium",
-                              timeStyle: "short",
-                            })}
+                            {activeContact.sender_number}
                           </span>
                         </CardDescription>
                       </div>
                     </div>
 
-                    {selectedMessage.patients?.name ? (
+                    {activeContact.patient_name ? (
                       <span className="inline-flex items-center gap-1 text-xs font-medium bg-green-50 text-green-700 px-2.5 py-1 rounded-full border border-green-200">
                         <CheckCircle2 className="h-3 w-3" /> Pasien Terdaftar
                       </span>
@@ -249,46 +356,90 @@ export function InboxPage() {
                   </div>
                 </CardHeader>
 
-                <CardContent className="flex-1 p-6 overflow-y-auto bg-slate-50/50">
-                  <div className="space-y-4">
-                    <div className="text-xs text-center text-muted-foreground my-2">
-                      Pesan diterima pada{" "}
-                      {new Date(selectedMessage.created_at).toLocaleDateString("id-ID", {
-                        weekday: "long",
-                        year: "numeric",
-                        month: "long",
-                        day: "numeric",
-                      })}
+                <CardContent className="flex-1 p-6 overflow-y-auto bg-[#efeae2]/30 space-y-3">
+                  {loadingChat ? (
+                    <div className="flex justify-center items-center h-full">
+                      <Loader2 className="h-6 w-6 animate-spin text-primary" />
                     </div>
+                  ) : activeChatHistory.length === 0 ? (
+                    <div className="text-center py-12 text-muted-foreground">
+                      <p className="text-sm">Belum ada riwayat pesan</p>
+                    </div>
+                  ) : (
+                    activeChatHistory.map((chat, index) => {
+                      const isInbound = chat.sender_type === "inbound";
+                      
+                      // Cek apakah perlu menampilkan Pembatas Tanggal
+                      const currentDateStr = new Date(chat.created_at).toDateString();
+                      const previousDateStr =
+                        index > 0
+                          ? new Date(activeChatHistory[index - 1].created_at).toDateString()
+                          : null;
+                      const showDateDivider = currentDateStr !== previousDateStr;
 
-                    <div className="flex justify-start">
-                      <div className="max-w-[85%] bg-white rounded-2xl rounded-tl-none p-4 shadow-sm border border-border space-y-2">
-                        <div className="text-xs font-semibold text-primary">
-                          {selectedMessage.patients?.name ||
-                            selectedMessage.sender_name ||
-                            selectedMessage.sender_number}
+                      return (
+                        <div key={chat.id} className="space-y-3">
+                          {/* DATER DIVIDER KHAS WHATSAPP */}
+                          {showDateDivider && (
+                            <div className="flex justify-center my-3">
+                              <span className="bg-white/90 text-slate-600 text-[11px] font-medium px-3 py-1 rounded-md shadow-xs border border-slate-200/60 uppercase tracking-wider">
+                                {formatDateDivider(chat.created_at)}
+                              </span>
+                            </div>
+                          )}
+
+                          {/* BUBBLE CHAT */}
+                          <div
+                            className={`flex ${
+                              isInbound ? "justify-start" : "justify-end"
+                            }`}
+                          >
+                            <div
+                              className={`max-w-[75%] rounded-2xl px-4 py-2.5 shadow-sm border text-sm space-y-1 ${
+                                isInbound
+                                  ? "bg-white text-slate-800 rounded-tl-none border-gray-200"
+                                  : "bg-[#d9fdd3] text-slate-900 rounded-tr-none border-green-200"
+                              }`}
+                            >
+                              {!isInbound && (
+                                <div className="text-[10px] font-semibold text-green-800 flex items-center gap-1 justify-end">
+                                  <Send className="h-3 w-3" /> Anda (Klinik)
+                                </div>
+                              )}
+                              {isInbound && (
+                                <div className="text-[10px] font-semibold text-primary">
+                                  {activeContact.patient_name || activeContact.sender_name || "Pasien"}
+                                </div>
+                              )}
+                              <p className="whitespace-pre-wrap break-words leading-relaxed">
+                                {chat.message_content}
+                              </p>
+                              <div
+                                className={`text-[10px] ${
+                                  isInbound ? "text-gray-400 text-left" : "text-green-700 text-right"
+                                }`}
+                              >
+                                {new Date(chat.created_at).toLocaleTimeString("id-ID", {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                              </div>
+                            </div>
+                          </div>
                         </div>
-                        <p className="text-sm text-slate-800 whitespace-pre-wrap break-words leading-relaxed">
-                          {selectedMessage.message_content}
-                        </p>
-                        <div className="text-[10px] text-slate-400 text-right">
-                          {new Date(selectedMessage.created_at).toLocaleTimeString("id-ID", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                      );
+                    })
+                  )}
+                  <div ref={chatBottomRef} />
                 </CardContent>
               </>
             ) : (
               <div className="flex-1 flex items-center justify-center p-8 text-center text-muted-foreground">
                 <div>
                   <MessageSquare className="h-12 w-12 mx-auto mb-3 opacity-30" />
-                  <p className="text-base font-medium">Pilih pesan di sebelah kiri</p>
+                  <p className="text-base font-medium">Pilih percakapan di sebelah kiri</p>
                   <p className="text-xs mt-1">
-                    Detail isi balasan pesan pasien akan muncul di panel ini.
+                    Riwayat pesan WhatsApp akan ditampilkan di sini.
                   </p>
                 </div>
               </div>
