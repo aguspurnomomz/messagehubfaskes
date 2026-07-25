@@ -32,6 +32,7 @@ import {
   Plus, 
   Settings, 
   Trash2, 
+  Pencil,           
   MinusCircle, 
   UserPlus, 
   Variable, 
@@ -40,7 +41,9 @@ import {
   MessageCircle,
   Calendar,
   Download,
-  Filter
+  Filter,
+  Upload,
+  FileSpreadsheet
 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import * as XLSX from "xlsx";
@@ -147,8 +150,17 @@ export function BroadcastPage() {
   const [newTemplateTitle, setNewTemplateTitle] = useState("");
   const [newTemplateContent, setNewTemplateContent] = useState("");
   const [isCreatingTemplate, setIsCreatingTemplate] = useState(false);
+
+ 
+  const [isEditTemplateOpen, setIsEditTemplateOpen] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState<MessageTemplate | null>(null);
+  const [editTemplateTitle, setEditTemplateTitle] = useState("");
+  const [editTemplateContent, setEditTemplateContent] = useState("");
+  const [isUpdatingTemplate, setIsUpdatingTemplate] = useState(false);
+
+  const [isImporting, setIsImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
-  // State Aktivitas Terbaru & Filter Tanggal
   const [recentDeliveries, setRecentDeliveries] = useState<RecentDelivery[]>([]);
   const [isLoadingDeliveries, setIsLoadingDeliveries] = useState(false);
   const [dateFilter, setDateFilter] = useState<DateFilterType>("weekly");
@@ -213,6 +225,111 @@ export function BroadcastPage() {
       setGroupMembersForManage([]);
     }
   }, [selectedManageGroup, manageTab]);
+
+  const downloadSampleTemplate = (format: "excel" | "txt") => {
+    if (format === "excel") {
+      const sampleData = [
+        {
+          Judul: "Pengambilan Obat",
+          Isi: "Halo {{name}},\nObat Anda sudah siap diambil di apotek klinik.\nTotal tagihan: {{value1}}.\n\nTerima kasih.",
+        },
+        {
+          Judul: "Pengingat Kontrol",
+          Isi: "Yth. Pasien {{name}},\nMengingatkan jadwal kontrol ulang Anda pada {{value1}}.\nNomor antrian: {{queueNo}}.\n\nSemoga sehat selalu.",
+        },
+      ];
+
+      const worksheet = XLSX.utils.json_to_sheet(sampleData);
+      worksheet["!cols"] = [{ wch: 25 }, { wch: 60 }];
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Contoh Template");
+      XLSX.writeFile(workbook, "Contoh_Template_Pesan.xlsx");
+    } else if (format === "txt") {
+      const txtContent = `Pengingat Janji Temu\nYth. {{name}},\n\nKami mengingatkan jadwal janji temu Anda besok.\nCatatan: {{value1}}\n\nTerima kasih.`;
+      const blob = new Blob([txtContent], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "Contoh_Template_Pesan.txt";
+      link.click();
+      URL.revokeObjectURL(url);
+    }
+  };
+
+  const handleImportTemplateFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsImporting(true);
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const userId = userData?.user?.id;
+      if (!userId) throw new Error("User tidak terautentikasi");
+
+      const fileExt = file.name.split(".").pop()?.toLowerCase();
+      let importedTemplates: { title: string; content: string; user_id: string }[] = [];
+
+      if (fileExt === "xlsx" || fileExt === "xls") {
+        const dataBuffer = await file.arrayBuffer();
+        const workbook = XLSX.read(dataBuffer, { type: "array" });
+        const sheetName = workbook.SheetNames[0];
+        const rawData: any[] = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+
+        importedTemplates = rawData
+          .map((row) => {
+            const title = row["Judul"] || row["title"] || row["Title"] || "";
+            const content = row["Isi"] || row["content"] || row["Content"] || row["Pesan"] || "";
+            return {
+              title: String(title).trim(),
+              content: String(content).trim(),
+              user_id: userId,
+            };
+          })
+          .filter((t) => t.title !== "" && t.content !== "");
+      }
+      else if (fileExt === "txt") {
+        const fullText = await file.text();
+        const lines = fullText.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+        if (lines.length > 0) {
+          const title = lines[0] || file.name.replace(".txt", "");
+          const content = lines.slice(1).join("\n").trim() || title;
+
+          importedTemplates.push({
+            title: title.substring(0, 50),
+            content: content,
+            user_id: userId,
+          });
+        }
+      } else {
+        alert("Format file tidak didukung! Gunakan file Excel (.xlsx) atau Teks (.txt)");
+        setIsImporting(false);
+        return;
+      }
+
+      if (importedTemplates.length === 0) {
+        alert("File kosong atau format data tidak valid!");
+        setIsImporting(false);
+        return;
+      }
+
+      const { error } = await supabase.from("message_templates").insert(importedTemplates);
+
+      if (error) throw error;
+
+      await fetchTemplates();
+      setSuccessMessage(`Berhasil mengimpor ${importedTemplates.length} template baru!`);
+      setShowSuccessToast(true);
+      setTimeout(() => setShowSuccessToast(false), 3000);
+    } catch (err: any) {
+      console.error("Error importing template file:", err);
+      setErrorMessage(err.message || "Gagal mengimpor file template");
+      setShowErrorToast(true);
+      setTimeout(() => setShowErrorToast(false), 3000);
+    } finally {
+      setIsImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
 
   const fetchRecentDeliveries = async () => {
     setIsLoadingDeliveries(true);
@@ -458,6 +575,66 @@ export function BroadcastPage() {
       setTimeout(() => setShowErrorToast(false), 3000);
     } finally {
       setIsCreatingTemplate(false);
+    }
+  };
+
+  const handleOpenEditTemplate = (template: MessageTemplate) => {
+    setEditingTemplate(template);
+    setEditTemplateTitle(template.title);
+    setEditTemplateContent(template.content);
+    setIsEditTemplateOpen(true);
+  };
+
+  const handleUpdateTemplate = async () => {
+    if (!editingTemplate) return;
+
+    if (!editTemplateTitle.trim()) {
+      alert("Judul template harus diisi!");
+      return;
+    }
+
+    if (!editTemplateContent.trim()) {
+      alert("Isi template harus diisi!");
+      return;
+    }
+
+    setIsUpdatingTemplate(true);
+    try {
+      const { error } = await supabase
+        .from('message_templates')
+        .update({
+          title: editTemplateTitle,
+          content: editTemplateContent,
+        })
+        .eq('id', editingTemplate.id);
+
+      if (error) throw error;
+
+      setTemplates(prev =>
+        prev.map(t =>
+          t.id === editingTemplate.id
+            ? { ...t, title: editTemplateTitle, content: editTemplateContent }
+            : t
+        )
+      );
+
+      if (selectedTemplateId === editingTemplate.id) {
+        setSelectedTemplateTitle(editTemplateTitle);
+        setMessage(editTemplateContent);
+      }
+
+      setIsEditTemplateOpen(false);
+      setEditingTemplate(null);
+      setShowSuccessToast(true);
+      setSuccessMessage("Template berhasil diperbarui!");
+      setTimeout(() => setShowSuccessToast(false), 3000);
+    } catch (error: any) {
+      console.error('Error updating template:', error);
+      setErrorMessage(error.message || "Gagal memperbarui template");
+      setShowErrorToast(true);
+      setTimeout(() => setShowErrorToast(false), 3000);
+    } finally {
+      setIsUpdatingTemplate(false);
     }
   };
 
@@ -925,7 +1102,6 @@ export function BroadcastPage() {
     }
 
     setIsSending(true);
-    // Menggunakan singleCustomValue untuk Kirim Satuan
     const fullMessage = getPersonalizedMessage(selectedPatient.name, message, singleCustomValue);
     const messageType = selectedTemplateTitle;
 
@@ -1122,6 +1298,14 @@ export function BroadcastPage() {
 
   return (
     <div className="space-y-6">
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleImportTemplateFile}
+        accept=".xlsx, .xls, .txt"
+        className="hidden"
+      />
+
       <div>
         <h2 className="text-2xl font-semibold tracking-tight">Pusat Pengiriman Pesan</h2>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -1130,8 +1314,6 @@ export function BroadcastPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        
-        {/* PANEL KOMPOSER PESAN */}
         <div className="space-y-4">
           <Card className="h-full">
             <CardHeader>
@@ -1260,7 +1442,6 @@ export function BroadcastPage() {
                     )}
                   </div>
 
-                  {/* INPUT NILAI KUSTOM UNTUK KIRIM SATUAN */}
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-foreground flex items-center gap-1.5">
                       <Variable className="h-4 w-4 text-primary" />
@@ -1502,7 +1683,6 @@ export function BroadcastPage() {
           </Card>
         </div>
 
-        {/* PANEL PRATINJAU LANGSUNG */}
         <div className="space-y-4">
           <Card className="h-full">
             <CardHeader>
@@ -1600,7 +1780,6 @@ export function BroadcastPage() {
         </div>
       </div>
 
-      {/* SECTION: AKTIVITAS TERBARU (DENGAN FILTER TANGGAL & EXPORT EXCEL) */}
       <Card className="border-border/80 shadow-sm mt-6">
         <CardHeader>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -1767,15 +1946,41 @@ export function BroadcastPage() {
         </CardContent>
       </Card>
 
-      {/* DIALOG TEMPLATE PESAN */}
       <Dialog open={isTemplateDialogOpen} onOpenChange={setIsTemplateDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Pilih Template Pesan</DialogTitle>
-            <DialogDescription>Pilih template untuk memulai</DialogDescription>
+            <DialogDescription>Pilih template atau impor dari file (Excel / TXT)</DialogDescription>
           </DialogHeader>
           
-          <div className="space-y-4 py-4">
+          <div className="space-y-4 py-2">
+            <div className="p-3 bg-muted/60 rounded-lg border border-border">
+              <p className="text-xs font-semibold text-foreground mb-2 flex items-center gap-1.5">
+                <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+                Unduh Contoh Format File Template:
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => downloadSampleTemplate("excel")}
+                  className="h-7 text-xs gap-1 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                >
+                  <Download className="h-3 w-3" /> Contoh Excel (.xlsx)
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => downloadSampleTemplate("txt")}
+                  className="h-7 text-xs gap-1 border-gray-300 text-gray-700 hover:bg-gray-100"
+                >
+                  <Download className="h-3 w-3" /> Contoh Teks (.txt)
+                </Button>
+              </div>
+            </div>
+
             {isLoadingTemplates ? (
               <div className="flex justify-center items-center py-8">
                 <Loader2 className="h-6 w-6 animate-spin" />
@@ -1801,14 +2006,26 @@ export function BroadcastPage() {
                         </div>
                       </button>
                       
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="shrink-0 text-muted-foreground hover:text-red-600 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
-                        onClick={() => handleDeleteTemplate(template.id, template.title)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="shrink-0 text-muted-foreground hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                          onClick={() => handleOpenEditTemplate(template)}
+                          title="Edit Template"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="shrink-0 text-muted-foreground hover:text-red-600 hover:bg-red-50 transition-colors"
+                          onClick={() => handleDeleteTemplate(template.id, template.title)}
+                          title="Hapus Template"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1817,14 +2034,24 @@ export function BroadcastPage() {
                   <div className="text-center py-8 text-muted-foreground">
                     <FileText className="h-12 w-12 mx-auto mb-3 opacity-50" />
                     <p>Belum ada template pesan</p>
-                    <p className="text-sm">Klik tombol di bawah untuk membuat template baru</p>
+                    <p className="text-sm">Buat manual atau impor file di bawah</p>
                   </div>
                 )}
 
-                <div className="border-t pt-4 mt-2">
+                <div className="border-t pt-4 mt-2 flex flex-col sm:flex-row gap-2">
                   <Button
-                    variant="ghost"
-                    className="w-full gap-2"
+                    variant="outline"
+                    className="flex-1 gap-2 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isImporting}
+                  >
+                    {isImporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4 text-emerald-600" />}
+                    Impor File (.xlsx, .txt)
+                  </Button>
+
+                  <Button
+                    variant="default"
+                    className="flex-1 gap-2"
                     onClick={() => {
                       setIsTemplateDialogOpen(false);
                       setIsCreateTemplateOpen(true);
@@ -1840,7 +2067,6 @@ export function BroadcastPage() {
         </DialogContent>
       </Dialog>
 
-      {/* DIALOG BUAT TEMPLATE */}
       <Dialog open={isCreateTemplateOpen} onOpenChange={setIsCreateTemplateOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -1884,7 +2110,49 @@ export function BroadcastPage() {
         </DialogContent>
       </Dialog>
 
-      {/* DIALOG KELOLA GRUP */}
+      <Dialog open={isEditTemplateOpen} onOpenChange={setIsEditTemplateOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit Template Pesan</DialogTitle>
+            <DialogDescription>Perbarui judul atau isi pesan template</DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Judul Template</label>
+              <Input
+                placeholder="Judul template..."
+                value={editTemplateTitle}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditTemplateTitle(e.target.value)}
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Isi Pesan</label>
+              <textarea
+                placeholder="Isi pesan template..."
+                value={editTemplateContent}
+                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setEditTemplateContent(e.target.value)}
+                className="flex min-h-[200px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 font-mono"
+              />
+              <p className="text-xs text-muted-foreground">
+                Tips: Gunakan {"{{name}}"}, {"{{value1}}"}, dan {"{{queueNo}}"} sebagai variabel dinamis
+              </p>
+            </div>
+          </div>
+          
+          <div className="flex justify-end gap-3 pt-4 border-t border-border/50">
+            <Button variant="outline" onClick={() => setIsEditTemplateOpen(false)}>
+              Batal
+            </Button>
+            <Button onClick={handleUpdateTemplate} disabled={isUpdatingTemplate}>
+              {isUpdatingTemplate ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle className="h-4 w-4 mr-2" />}
+              Simpan Perubahan
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={isManageGroupsOpen} onOpenChange={setIsManageGroupsOpen}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
@@ -2104,7 +2372,6 @@ export function BroadcastPage() {
         </DialogContent>
       </Dialog>
 
-      {/* SUCCESS TOAST */}
       {showSuccessToast && (
         <div className="fixed bottom-4 right-4 z-50 animate-in slide-in-from-right-5 fade-in duration-300">
           <div className="bg-green-600 text-white rounded-lg shadow-lg px-4 py-3 flex items-center gap-3">
@@ -2117,7 +2384,6 @@ export function BroadcastPage() {
         </div>
       )}
 
-      {/* ERROR TOAST */}
       {showErrorToast && (
         <div className="fixed bottom-4 right-4 z-50 animate-in slide-in-from-right-5 fade-in duration-300">
           <div className="bg-red-600 text-white rounded-lg shadow-lg px-4 py-3 flex items-center gap-3">

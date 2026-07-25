@@ -53,7 +53,6 @@ export function InboxPage() {
     chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [activeChatHistory]);
 
-  // Helper untuk Format Pembatas Tanggal ala WhatsApp
   const formatDateDivider = (dateString: string) => {
     const msgDate = new Date(dateString);
     const today = new Date();

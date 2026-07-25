@@ -1,12 +1,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// Header CORS
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Helper format nomor telepon ke format internasional (62xxx)
 function formatPhoneToInternational(phone: string): string {
   let cleaned = phone.replace(/\D/g, "");
   if (cleaned.startsWith("0")) {
@@ -18,20 +16,17 @@ function formatPhoneToInternational(phone: string): string {
 }
 
 Deno.serve(async (req) => {
-  // Handle Preflight Request CORS
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
   try {
-    // 1. Inisialisasi Supabase Admin Client
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     const now = new Date().toISOString();
 
-    // 2. Cari broadcast yang statusnya 'pending' dan waktunya sudah lewat/saat ini
     const { data: pendingBroadcasts, error: broadcastError } = await supabase
       .from("scheduled_broadcasts")
       .select("*")
@@ -49,15 +44,12 @@ Deno.serve(async (req) => {
 
     let totalProcessedTasks = 0;
 
-    // 3. Looping setiap broadcast yang siap dikirim
     for (const broadcast of pendingBroadcasts) {
-      // Ubah status broadcast menjadi 'processing'
       await supabase
         .from("scheduled_broadcasts")
         .update({ status: "processing" })
         .eq("id", broadcast.id);
 
-      // Ambil API Key Fonnte & Signature Klinik milik User pemilik broadcast
       const { data: clinicSettings } = await supabase
         .from("clinic_settings")
         .select("fonte_api_key, signature, clinic_name")
@@ -75,7 +67,6 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      // Ambil daftar tugas pesan (scheduled_tasks)
       const { data: tasks, error: tasksError } = await supabase
         .from("scheduled_tasks")
         .select("*")
@@ -93,10 +84,8 @@ Deno.serve(async (req) => {
       let successCount = 0;
       let failedCount = 0;
 
-      // 4. Eksekusi pengiriman tiap tugas (task)
       for (const task of tasks) {
         try {
-          // Siapkan isi pesan + Signature jika ada
           let messageText = task.message_content;
           if (clinicSettings?.signature) {
             let sig = clinicSettings.signature.replace(
@@ -125,13 +114,11 @@ Deno.serve(async (req) => {
             throw new Error(fonnteData.message || "Gagal mengirim via Fonnte");
           }
 
-          // Update task menjadi 'completed'
           await supabase
             .from("scheduled_tasks")
             .update({ status: "completed" })
             .eq("id", task.id);
 
-          // Catat ke log pesan utama (message_logs)
           await supabase.from("message_logs").insert({
             patient_id: task.patient_id,
             message_type: "Scheduled Broadcast",
@@ -145,7 +132,6 @@ Deno.serve(async (req) => {
         } catch (err: any) {
           console.error(`Gagal mengirim task ID ${task.id}:`, err.message);
 
-          // Update task menjadi 'failed'
           await supabase
             .from("scheduled_tasks")
             .update({
@@ -154,7 +140,6 @@ Deno.serve(async (req) => {
             })
             .eq("id", task.id);
 
-          // Catat kegagalan ke message_logs
           await supabase.from("message_logs").insert({
             patient_id: task.patient_id,
             message_type: "Scheduled Broadcast",
@@ -166,13 +151,11 @@ Deno.serve(async (req) => {
           failedCount++;
         }
 
-        // Delay kecil 300ms antar pesan agar tidak memicu rate-limit
         await new Promise((resolve) => setTimeout(resolve, 300));
       }
 
       totalProcessedTasks += tasks.length;
 
-      // 5. Update status broadcast akhir
       const finalStatus = failedCount === tasks.length ? "failed" : "completed";
       await supabase
         .from("scheduled_broadcasts")
