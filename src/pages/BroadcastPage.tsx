@@ -46,11 +46,12 @@ import {
   FileSpreadsheet,
   Paperclip,
   X,
-  File
+  File,
+  FolderOpen
 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import * as XLSX from "xlsx";
-import { uploadAndSaveDocument } from "@/lib/documentService";
+import { uploadAndSaveDocument, type UserDocument } from "@/lib/documentService";
 
 interface PatientOption {
   id: string;
@@ -163,8 +164,18 @@ export function BroadcastPage() {
 
   // State Lampiran / Attachment
   const [selectedAttachment, setSelectedAttachment] = useState<File | null>(null);
+  const [selectedExistingDocument, setSelectedExistingDocument] = useState<UserDocument | null>(null);
   const [attachmentPreviewUrl, setAttachmentPreviewUrl] = useState<string | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
+
+  // State Modal Pustaka Dokumen
+  const [isDocumentPickerOpen, setIsDocumentPickerOpen] = useState(false);
+  const [savedDocuments, setSavedDocuments] = useState<UserDocument[]>([]);
+  const [isLoadingSavedDocs, setIsLoadingSavedDocs] = useState(false);
+  const [docSearchQuery, setDocSearchQuery] = useState("");
+
+  // State Modal Konfirmasi Kirim
+  const [isConfirmSendOpen, setIsConfirmSendOpen] = useState(false);
 
   const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -234,7 +245,36 @@ export function BroadcastPage() {
     }
   }, [selectedManageGroup, manageTab]);
 
-  // Handler Pilih Lampiran File
+  // Fetch Dokumen dari Supabase Database & Storage
+  const fetchSavedDocuments = async () => {
+    setIsLoadingSavedDocs(true);
+    try {
+      const { data, error } = await supabase
+        .from("user_documents")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+      setSavedDocuments(data || []);
+    } catch (err) {
+      console.error("Gagal mengambil dokumen:", err);
+    } finally {
+      setIsLoadingSavedDocs(false);
+    }
+  };
+
+  const handleOpenDocumentPicker = () => {
+    fetchSavedDocuments();
+    setIsDocumentPickerOpen(true);
+  };
+
+  const handleSelectExistingDocument = (doc: UserDocument) => {
+    setSelectedAttachment(null); // Reset local file
+    setSelectedExistingDocument(doc);
+    setIsDocumentPickerOpen(false);
+  };
+
+  // Handler Pilih Lampiran File Lokal
   const handleAttachmentChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -244,6 +284,7 @@ export function BroadcastPage() {
       return;
     }
 
+    setSelectedExistingDocument(null); // Reset file storage
     setSelectedAttachment(file);
 
     if (file.type.startsWith("image/")) {
@@ -257,6 +298,7 @@ export function BroadcastPage() {
   // Handler Hapus Lampiran File
   const handleRemoveAttachment = () => {
     setSelectedAttachment(null);
+    setSelectedExistingDocument(null);
     if (attachmentPreviewUrl) {
       URL.revokeObjectURL(attachmentPreviewUrl);
       setAttachmentPreviewUrl(null);
@@ -1095,11 +1137,9 @@ export function BroadcastPage() {
     formData.append('message', messageText);
 
     if (fileUrl) {
-      // Masukkan ke 'url' dan 'file' sekaligus untuk kompatibilitas Fonnte
       formData.append('url', fileUrl);
       formData.append('file', fileUrl);
 
-      // Kirim nama file jika ada
       if (fileName) {
         formData.append('filename', fileName);
       }
@@ -1151,7 +1191,7 @@ export function BroadcastPage() {
       return;
     }
 
-    if (!message.trim() && !selectedAttachment) {
+    if (!message.trim() && !selectedAttachment && !selectedExistingDocument) {
       alert("Pesan atau lampiran file tidak boleh kosong!");
       return;
     }
@@ -1162,13 +1202,16 @@ export function BroadcastPage() {
     }
 
     setIsSending(true);
+    setIsConfirmSendOpen(false); // Tutup Dialog Konfirmasi
+
     const fullMessage = getPersonalizedMessage(selectedPatient.name, message, singleCustomValue);
     const messageType = selectedTemplateTitle;
 
     try {
       let uploadedUrl: string | null = null;
+      let fileName: string | undefined = undefined;
 
-      // 1. Upload File Lampiran jika ada
+      // 1. Upload File Lampiran baru jika ada
       if (selectedAttachment) {
         const { publicUrl } = await uploadAndSaveDocument(
           selectedAttachment,
@@ -1176,6 +1219,12 @@ export function BroadcastPage() {
           selectedTemplateTitle
         );
         uploadedUrl = publicUrl;
+        fileName = selectedAttachment.name;
+      } 
+      // Atau gunakan file dari pustaka storage yang dipilih
+      else if (selectedExistingDocument) {
+        uploadedUrl = selectedExistingDocument.file_url;
+        fileName = selectedExistingDocument.document_name;
       }
 
       // 2. Kirim via Fonnte
@@ -1183,7 +1232,7 @@ export function BroadcastPage() {
         selectedPatient.phone_number, 
         fullMessage, 
         uploadedUrl, 
-        selectedAttachment?.name
+        fileName
       );
       
       // 3. Simpan Log
@@ -1214,7 +1263,7 @@ export function BroadcastPage() {
       return;
     }
 
-    if (!message.trim() && !selectedAttachment) {
+    if (!message.trim() && !selectedAttachment && !selectedExistingDocument) {
       alert("Pesan atau lampiran file tidak boleh kosong!");
       return;
     }
@@ -1225,14 +1274,16 @@ export function BroadcastPage() {
     }
 
     setIsSending(true);
+    setIsConfirmSendOpen(false); // Tutup Dialog Konfirmasi
     setSendProgress({ current: 0, total: groupMembers.length, success: 0, failed: 0 });
 
     let successCount = 0;
     let failedCount = 0;
     let uploadedUrl: string | null = null;
+    let fileName: string | undefined = undefined;
 
     try {
-      // 1. Upload File Lampiran Sekali untuk Broadcast Grup (jika ada file)
+      // 1. Upload File Lampiran Sekali untuk Broadcast Grup (jika ada file baru)
       if (selectedAttachment) {
         const { publicUrl } = await uploadAndSaveDocument(
           selectedAttachment,
@@ -1240,6 +1291,12 @@ export function BroadcastPage() {
           selectedTemplateTitle
         );
         uploadedUrl = publicUrl;
+        fileName = selectedAttachment.name;
+      } 
+      // Atau pakai file yang dipilih dari pustaka Storage
+      else if (selectedExistingDocument) {
+        uploadedUrl = selectedExistingDocument.file_url;
+        fileName = selectedExistingDocument.document_name;
       }
 
       // 2. Kirim Iteratif ke Setiap Anggota Grup
@@ -1251,7 +1308,7 @@ export function BroadcastPage() {
         setSendProgress(prev => ({ ...prev, current: i + 1 }));
 
         try {
-          const result = await sendToFonnte(member.phone_number, personalizedMessage, uploadedUrl);
+          const result = await sendToFonnte(member.phone_number, personalizedMessage, uploadedUrl, fileName);
           await saveMessageLog(member.patient_id, messageType, personalizedMessage, 'sent', result.id || null, uploadedUrl);
           successCount++;
           setSendProgress(prev => ({ ...prev, success: successCount }));
@@ -1289,7 +1346,7 @@ export function BroadcastPage() {
     }
   };
 
-  const handleSendMessage = () => {
+  const handleConfirmAndSend = () => {
     if (sendMode === "single") {
       handleSendSingle();
     } else {
@@ -1376,11 +1433,17 @@ export function BroadcastPage() {
     patient.phone_number.includes(searchQuery)
   );
 
+  const filteredSavedDocs = savedDocuments.filter((doc) =>
+    doc.document_name.toLowerCase().includes(docSearchQuery.toLowerCase()) ||
+    doc.document_type.toLowerCase().includes(docSearchQuery.toLowerCase())
+  );
+
   const isSendDisabled = () => {
+    const hasAttachment = Boolean(selectedAttachment || selectedExistingDocument);
     if (sendMode === "single") {
-      return isSending || !selectedPatient || (!message.trim() && !selectedAttachment) || !clinicSettings?.fonteApiKey;
+      return isSending || !selectedPatient || (!message.trim() && !hasAttachment) || !clinicSettings?.fonteApiKey;
     } else {
-      return isSending || !selectedGroup || groupMembers.length === 0 || (!message.trim() && !selectedAttachment) || !clinicSettings?.fonteApiKey;
+      return isSending || !selectedGroup || groupMembers.length === 0 || (!message.trim() && !hasAttachment) || !clinicSettings?.fonteApiKey;
     }
   };
 
@@ -1790,19 +1853,29 @@ export function BroadcastPage() {
                   <span className="text-xs text-muted-foreground font-normal">PDF, Gambar, Docx (Maks. 10MB)</span>
                 </label>
 
-                {!selectedAttachment ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => attachmentInputRef.current?.click()}
-                    className="w-full border-dashed gap-2 text-muted-foreground hover:text-foreground"
-                  >
-                    <Paperclip className="h-4 w-4" /> Pilih Dokumen / Gambar
-                  </Button>
+                {!selectedAttachment && !selectedExistingDocument ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => attachmentInputRef.current?.click()}
+                      className="border-dashed gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      <Paperclip className="h-3.5 w-3.5" /> Unggah File Baru
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleOpenDocumentPicker}
+                      className="border-dashed gap-1.5 text-xs text-primary border-primary/30 hover:bg-primary/5"
+                    >
+                      <FolderOpen className="h-3.5 w-3.5" /> Pilih dari Pustaka
+                    </Button>
+                  </div>
                 ) : (
                   <div className="flex items-center justify-between p-2.5 bg-muted/60 border border-border rounded-lg text-sm">
                     <div className="flex items-center gap-2.5 overflow-hidden">
-                      {selectedAttachment.type.startsWith("image/") ? (
+                      {selectedAttachment?.type.startsWith("image/") ? (
                         <img
                           src={attachmentPreviewUrl || ""}
                           alt="preview"
@@ -1814,9 +1887,13 @@ export function BroadcastPage() {
                         </div>
                       )}
                       <div className="min-w-0">
-                        <p className="font-medium text-xs truncate text-foreground">{selectedAttachment.name}</p>
+                        <p className="font-medium text-xs truncate text-foreground">
+                          {selectedAttachment ? selectedAttachment.name : selectedExistingDocument?.document_name}
+                        </p>
                         <p className="text-[10px] text-muted-foreground">
-                          {(selectedAttachment.size / (1024 * 1024)).toFixed(2)} MB
+                          {selectedAttachment
+                            ? `${(selectedAttachment.size / (1024 * 1024)).toFixed(2)} MB (Lokal)`
+                            : `Tersimpan di Storage (${selectedExistingDocument?.document_type})`}
                         </p>
                       </div>
                     </div>
@@ -1847,7 +1924,12 @@ export function BroadcastPage() {
                 </div>
               </div>
 
-              <Button onClick={handleSendMessage} disabled={isSendDisabled()} className="w-full gap-2">
+              {/* TOMBOL PICU MODAL KONFIRMASI */}
+              <Button 
+                onClick={() => setIsConfirmSendOpen(true)} 
+                disabled={isSendDisabled()} 
+                className="w-full gap-2"
+              >
                 {isSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 {getSendButtonText()}
               </Button>
@@ -1890,9 +1972,9 @@ export function BroadcastPage() {
                     <div className="max-w-[85%] bg-[#DCF8C6] rounded-lg p-2.5 shadow-sm space-y-2">
                       
                       {/* PREVIEW GAMBAR ATAU DOKUMEN DALAM BALON WA */}
-                      {selectedAttachment && (
+                      {(selectedAttachment || selectedExistingDocument) && (
                         <div className="rounded bg-black/5 p-2 overflow-hidden border border-black/10">
-                          {selectedAttachment.type.startsWith("image/") && attachmentPreviewUrl ? (
+                          {selectedAttachment?.type.startsWith("image/") && attachmentPreviewUrl ? (
                             <img
                               src={attachmentPreviewUrl}
                               alt="Attachment preview"
@@ -1902,7 +1984,9 @@ export function BroadcastPage() {
                             <div className="flex items-center gap-2 p-1">
                               <FileText className="h-6 w-6 text-primary shrink-0" />
                               <div className="min-w-0 flex-1">
-                                <p className="text-xs font-semibold truncate text-gray-800">{selectedAttachment.name}</p>
+                                <p className="text-xs font-semibold truncate text-gray-800">
+                                  {selectedAttachment ? selectedAttachment.name : selectedExistingDocument?.document_name}
+                                </p>
                                 <p className="text-[10px] text-gray-500">Dokumen Lampiran</p>
                               </div>
                             </div>
@@ -1911,7 +1995,7 @@ export function BroadcastPage() {
                       )}
 
                       <div className="text-sm whitespace-pre-wrap break-words text-gray-800">
-                        {getPreviewMessage() || (selectedAttachment ? "" : "Pesan Anda akan muncul di sini...")}
+                        {getPreviewMessage() || (selectedAttachment || selectedExistingDocument ? "" : "Pesan Anda akan muncul di sini...")}
                       </div>
 
                       <div className="text-[10px] text-gray-500 text-right mt-1">
@@ -1940,7 +2024,7 @@ export function BroadcastPage() {
                     </div>
                   )}
 
-                  {!getPreviewMessage() && !selectedAttachment && (
+                  {!getPreviewMessage() && !selectedAttachment && !selectedExistingDocument && (
                     <div className="flex justify-center items-center h-64">
                       <div className="text-center text-gray-400">
                         <AlertCircle className="h-8 w-8 mx-auto mb-2" />
@@ -2142,6 +2226,130 @@ export function BroadcastPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* DIALOG PUSTAKA DOKUMEN (STORAGE) */}
+      <Dialog open={isDocumentPickerOpen} onOpenChange={setIsDocumentPickerOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FolderOpen className="h-5 w-5 text-primary" /> Pilih Berkas dari Pustaka
+            </DialogTitle>
+            <DialogDescription>
+              Gunakan file yang sudah pernah diunggah sebelumnya di Storage Supabase
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Cari nama dokumen..."
+                value={docSearchQuery}
+                onChange={(e) => setDocSearchQuery(e.target.value)}
+                className="pl-9 text-xs"
+              />
+            </div>
+
+            {isLoadingSavedDocs ? (
+              <div className="flex justify-center items-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              </div>
+            ) : filteredSavedDocs.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <FileText className="h-10 w-10 mx-auto mb-2 opacity-40" />
+                <p className="text-sm">Tidak ada dokumen di pustaka</p>
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {filteredSavedDocs.map((doc) => (
+                  <div
+                    key={doc.id}
+                    className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted/50 cursor-pointer transition-colors"
+                    onClick={() => handleSelectExistingDocument(doc)}
+                  >
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <div className="h-8 w-8 rounded bg-primary/10 flex items-center justify-center shrink-0">
+                        <FileText className="h-4 w-4 text-primary" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-semibold truncate text-foreground">{doc.document_name}</p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {doc.document_type} • {new Date(doc.created_at).toLocaleDateString("id-ID")}
+                        </p>
+                      </div>
+                    </div>
+                    <Button size="sm" variant="ghost" className="text-xs text-primary">
+                      Pilih
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* DIALOG KONFIRMASI PENGIRIMAN PESAN */}
+      <Dialog open={isConfirmSendOpen} onOpenChange={setIsConfirmSendOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-600">
+              <AlertCircle className="h-5 w-5" /> Konfirmasi Pengiriman
+            </DialogTitle>
+            <DialogDescription>
+              Periksa kembali rincian pengiriman pesan Anda sebelum memproses.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2 text-xs">
+            <div className="p-3 bg-muted/60 rounded-lg space-y-1.5 border border-border">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Mode Kirim:</span>
+                <span className="font-semibold text-foreground uppercase">{sendMode}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Penerima:</span>
+                <span className="font-semibold text-foreground">
+                  {sendMode === "single"
+                    ? selectedPatient?.name
+                    : `${selectedGroup?.name} (${groupMembers.length} Pasien)`}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Template:</span>
+                <span className="font-medium text-foreground">{selectedTemplateTitle}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Lampiran:</span>
+                <span className="font-medium text-primary">
+                  {selectedAttachment
+                    ? selectedAttachment.name
+                    : selectedExistingDocument
+                    ? selectedExistingDocument.document_name
+                    : "Tanpa File"}
+                </span>
+              </div>
+            </div>
+
+            <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-lg text-blue-900">
+              <p className="font-medium">Pratinjau Ringkas Pesan:</p>
+              <p className="mt-1 font-mono text-[11px] line-clamp-3 opacity-90">
+                "{getPreviewMessage()}"
+              </p>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-3 border-t">
+            <Button variant="outline" size="sm" onClick={() => setIsConfirmSendOpen(false)}>
+              Batal
+            </Button>
+            <Button size="sm" onClick={handleConfirmAndSend} disabled={isSending} className="gap-1.5">
+              {isSending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+              Ya, Kirim Sekarang
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* DIALOG TEMPLATE PESAN */}
       <Dialog open={isTemplateDialogOpen} onOpenChange={setIsTemplateDialogOpen}>

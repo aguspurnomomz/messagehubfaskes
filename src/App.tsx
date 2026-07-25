@@ -12,11 +12,8 @@ import { ProfilePage } from "@/pages/ProfilePage";
 import { LandingPage } from "@/pages/LandingPage";
 import { TermsPage } from "@/pages/TermsPage";
 import { InboxPage } from "@/pages/InboxPage";
-import { DocumentManagerPage } from "./pages/DocumentManagerPage";
+import { DocumentManagerPage } from "@/pages/DocumentManagerPage";
 
-// ========================================================
-// KOMPONEN PEMBANTU: Mengembalikan Posisi Scroll ke Atas
-// ========================================================
 function ScrollToTop() {
   const { pathname } = useLocation();
 
@@ -30,7 +27,6 @@ function ScrollToTop() {
 export default function App() {
   return (
     <BrowserRouter>
-      {/* Selipkan komponen ini agar posisi scroll reset setiap pindah halaman */}
       <ScrollToTop /> 
       
       <Routes>

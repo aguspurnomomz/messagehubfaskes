@@ -82,20 +82,30 @@ export function DocumentManagerPage() {
     if (!confirm(`Apakah Anda yakin ingin menghapus "${doc.document_name}"?`)) return;
 
     try {
-      // 1. Hapus file dari Storage Supabase
-      if (doc.file_path) {
-        await supabase.storage.from("clinic-attachments").remove([doc.file_path]);
-      }
+        if (doc.file_path) {
+        // Pastikan path menyertakan folder 'documents/' jika belum ada
+        const fullStoragePath = doc.file_path.startsWith("documents/")
+            ? doc.file_path
+            : `documents/${doc.file_path}`;
 
-      // 2. Hapus baris metadata dari tabel DB
-      const { error } = await supabase.from("user_documents").delete().eq("id", doc.id);
-      if (error) throw error;
+        const { error: storageError } = await supabase.storage
+            .from("clinic-attachments")
+            .remove([fullStoragePath]);
 
-      setDocuments((prev) => prev.filter((d) => d.id !== doc.id));
-      setStatusMessage({ type: "success", text: "Dokumen berhasil dihapus." });
+        if (storageError) {
+            console.error("Gagal menghapus file di Storage:", storageError);
+        }
+        }
+
+        // Hapus baris metadata dari database
+        const { error: dbError } = await supabase.from("user_documents").delete().eq("id", doc.id);
+        if (dbError) throw dbError;
+
+        setDocuments((prev) => prev.filter((d) => d.id !== doc.id));
+        setStatusMessage({ type: "success", text: "Dokumen berhasil dihapus." });
     } catch (err: any) {
-      console.error("Delete error:", err);
-      setStatusMessage({ type: "error", text: err.message || "Gagal menghapus dokumen." });
+        console.error("Delete error:", err);
+        setStatusMessage({ type: "error", text: err.message || "Gagal menghapus dokumen." });
     }
   };
 

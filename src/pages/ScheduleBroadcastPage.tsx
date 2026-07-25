@@ -24,10 +24,26 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Calendar as CalendarIcon, Plus, Trash2, Pencil, Users, User, Loader2, CheckCircle, XCircle } from "lucide-react";
+import { 
+  Calendar as CalendarIcon, 
+  Plus, 
+  Trash2, 
+  Pencil, 
+  Users, 
+  User, 
+  Loader2, 
+  CheckCircle, 
+  XCircle, 
+  FolderOpen, 
+  FileText, 
+  Paperclip, 
+  X, 
+  Search 
+} from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { format } from "date-fns";
 import { id } from "date-fns/locale";
+import type { UserDocument } from "@/lib/documentService";
 
 interface PatientOption {
   id: string;
@@ -74,6 +90,8 @@ interface CustomRecipient {
   templateId: string;
   templateContent: string;
   customValue: string;
+  fileUrl?: string | null;
+  fileName?: string | null;
 }
 
 const formatDateTime = (dateString: string) => {
@@ -107,6 +125,9 @@ export function ScheduleBroadcastPage() {
   const [groupMessage, setGroupMessage] = useState("");
   const [isLoadingGroupMembers, setIsLoadingGroupMembers] = useState(false);
   
+  // State File Lampiran Grup
+  const [selectedGroupDocument, setSelectedGroupDocument] = useState<UserDocument | null>(null);
+
   const [customRecipients, setCustomRecipients] = useState<CustomRecipient[]>([]);
   const [patients, setPatients] = useState<PatientOption[]>([]);
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
@@ -124,11 +145,16 @@ export function ScheduleBroadcastPage() {
   const [isGroupDropdownOpen, setIsGroupDropdownOpen] = useState(false);
   const patientDropdownRef = useRef<HTMLDivElement>(null);
   const groupDropdownRef = useRef<HTMLDivElement>(null);
-  
+
+  const [isDocumentPickerOpen, setIsDocumentPickerOpen] = useState(false);
+  const [savedDocuments, setSavedDocuments] = useState<UserDocument[]>([]);
+  const [isLoadingSavedDocs, setIsLoadingSavedDocs] = useState(false);
+  const [docSearchQuery, setDocSearchQuery] = useState("");
+  const [activePickerTarget, setActivePickerTarget] = useState<"group" | string>("group"); // "group" atau recipient.id
+
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [selectedSchedule, setSelectedSchedule] = useState<ScheduledBroadcast | null>(null);
 
-  // State untuk Edit Jadwal
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editTitle, setEditTitle] = useState("");
   const [editScheduledTime, setEditScheduledTime] = useState("");
@@ -159,6 +185,44 @@ export function ScheduleBroadcastPage() {
       fetchGroupMembers(selectedGroup.id);
     }
   }, [selectedGroup, recipientMode]);
+
+  const fetchSavedDocuments = async () => {
+    setIsLoadingSavedDocs(true);
+    try {
+      const { data, error } = await supabase
+        .from("user_documents")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+      setSavedDocuments(data || []);
+    } catch (err) {
+      console.error("Gagal mengambil dokumen:", err);
+    } finally {
+      setIsLoadingSavedDocs(false);
+    }
+  };
+
+  const handleOpenDocumentPicker = (target: "group" | string) => {
+    setActivePickerTarget(target);
+    fetchSavedDocuments();
+    setIsDocumentPickerOpen(true);
+  };
+
+  const handleSelectDocument = (doc: UserDocument) => {
+    if (activePickerTarget === "group") {
+      setSelectedGroupDocument(doc);
+    } else {
+      setCustomRecipients((prev) =>
+        prev.map((r) =>
+          r.id === activePickerTarget
+            ? { ...r, fileUrl: doc.file_url, fileName: doc.document_name }
+            : r
+        )
+      );
+    }
+    setIsDocumentPickerOpen(false);
+  };
 
   const fetchSchedules = async () => {
     setIsLoadingSchedules(true);
@@ -334,6 +398,8 @@ export function ScheduleBroadcastPage() {
         patient_id: member.patient_id,
         phone_number: member.phone_number,
         message_content: personalizedMessage,
+        file_url: selectedGroupDocument?.file_url || null,
+        file_name: selectedGroupDocument?.document_name || null,
         status: "pending",
         error_message: null,
       });
@@ -354,6 +420,8 @@ export function ScheduleBroadcastPage() {
         patient_id: recipient.patientId,
         phone_number: recipient.patientPhone,
         message_content: personalizedMessage,
+        file_url: recipient.fileUrl || null,
+        file_name: recipient.fileName || null,
         status: "pending",
         error_message: null,
       });
@@ -387,8 +455,8 @@ export function ScheduleBroadcastPage() {
         alert("Grup ini tidak memiliki anggota!");
         return;
       }
-      if (!groupMessage.trim()) {
-        alert("Pesan tidak boleh kosong!");
+      if (!groupMessage.trim() && !selectedGroupDocument) {
+        alert("Pesan atau berkas lampiran harus diisi!");
         return;
       }
     } else {
@@ -444,6 +512,7 @@ export function ScheduleBroadcastPage() {
       setScheduledTime("");
       setSelectedGroup(null);
       setGroupMessage("");
+      setSelectedGroupDocument(null);
       setCustomRecipients([]);
       setSearchPatient("");
 
@@ -462,12 +531,10 @@ export function ScheduleBroadcastPage() {
     }
   };
 
-  // Trigger Buka Dialog Edit Jadwal
   const handleOpenEdit = (schedule: ScheduledBroadcast) => {
     setSelectedSchedule(schedule);
     setEditTitle(schedule.title);
     
-    // Format ISO ke datetime-local (YYYY-MM-DDTHH:mm)
     const dt = new Date(schedule.scheduled_time);
     const localIso = new Date(dt.getTime() - dt.getTimezoneOffset() * 60000)
       .toISOString()
@@ -477,7 +544,6 @@ export function ScheduleBroadcastPage() {
     setIsEditDialogOpen(true);
   };
 
-  // Handler Simpan Perubahan Edit Jadwal
   const handleUpdateSchedule = async () => {
     if (!selectedSchedule) return;
 
@@ -565,6 +631,8 @@ export function ScheduleBroadcastPage() {
         templateId: templates[0]?.id || "",
         templateContent: templates[0]?.content || "",
         customValue: "",
+        fileUrl: null,
+        fileName: null,
       },
     ]);
   };
@@ -573,7 +641,7 @@ export function ScheduleBroadcastPage() {
     setCustomRecipients(customRecipients.filter((r) => r.id !== id));
   };
 
-  const updateCustomRecipient = (id: string, field: keyof CustomRecipient, value: string) => {
+  const updateCustomRecipient = (id: string, field: keyof CustomRecipient, value: string | null) => {
     setCustomRecipients(
       customRecipients.map((r) => {
         if (r.id === id) {
@@ -601,6 +669,11 @@ export function ScheduleBroadcastPage() {
   const filteredPatients = patients.filter((patient) =>
     patient.name.toLowerCase().includes(searchPatient.toLowerCase()) ||
     patient.phone_number.includes(searchPatient)
+  );
+
+  const filteredSavedDocs = savedDocuments.filter((doc) =>
+    doc.document_name.toLowerCase().includes(docSearchQuery.toLowerCase()) ||
+    doc.document_type.toLowerCase().includes(docSearchQuery.toLowerCase())
   );
 
   const insertVariable = (variable: string) => {
@@ -763,6 +836,47 @@ export function ScheduleBroadcastPage() {
                     />
                   </div>
 
+                  {/* LAMPIRAN DOKUMEN GRUP */}
+                  <div className="space-y-2 pt-2 border-t border-border">
+                    <label className="text-sm font-medium flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <Paperclip className="h-4 w-4 text-primary" /> Berkas Lampiran Grup (Opsional)
+                      </span>
+                    </label>
+
+                    {!selectedGroupDocument ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => handleOpenDocumentPicker("group")}
+                        className="w-full border-dashed gap-2 text-xs text-primary border-primary/30 hover:bg-primary/5"
+                      >
+                        <FolderOpen className="h-4 w-4" /> Pilih Dokumen / Berkas dari Storage
+                      </Button>
+                    ) : (
+                      <div className="flex items-center justify-between p-2.5 bg-muted/60 border border-border rounded-lg text-sm">
+                        <div className="flex items-center gap-2.5 overflow-hidden">
+                          <div className="h-8 w-8 bg-primary/10 rounded flex items-center justify-center shrink-0">
+                            <FileText className="h-4 w-4 text-primary" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-medium text-xs truncate text-foreground">{selectedGroupDocument.document_name}</p>
+                            <p className="text-[10px] text-muted-foreground">{selectedGroupDocument.document_type}</p>
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setSelectedGroupDocument(null)}
+                          className="h-7 w-7 text-muted-foreground hover:text-red-600 shrink-0"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+
                   {isLoadingGroupMembers && (
                     <div className="flex justify-center py-4">
                       <Loader2 className="h-6 w-6 animate-spin" />
@@ -912,6 +1026,47 @@ export function ScheduleBroadcastPage() {
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateCustomRecipient(recipient.id, "customValue", e.target.value)}
                     />
                   </div>
+
+                  {/* LAMPIRAN DOKUMEN PER PASIEN INDIVIDU */}
+                  <div className="space-y-2 pt-2 border-t border-border">
+                    <label className="text-sm font-medium flex items-center justify-between">
+                      <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Paperclip className="h-3.5 w-3.5 text-primary" /> Lampiran Dokumen untuk Pasien ini (Opsional)
+                      </span>
+                    </label>
+
+                    {!recipient.fileName ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleOpenDocumentPicker(recipient.id)}
+                        className="w-full border-dashed gap-1.5 text-xs text-primary border-primary/30 hover:bg-primary/5"
+                      >
+                        <FolderOpen className="h-3.5 w-3.5" /> Pilih Berkas dari Storage
+                      </Button>
+                    ) : (
+                      <div className="flex items-center justify-between p-2 bg-muted/60 border border-border rounded-lg text-xs">
+                        <div className="flex items-center gap-2 overflow-hidden">
+                          <FileText className="h-4 w-4 text-primary shrink-0" />
+                          <span className="font-medium truncate text-foreground">{recipient.fileName}</span>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            updateCustomRecipient(recipient.id, "fileUrl", null);
+                            updateCustomRecipient(recipient.id, "fileName", null);
+                          }}
+                          className="h-6 w-6 text-muted-foreground hover:text-red-600 shrink-0"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+
                   {recipient.templateContent && recipient.patientName && (
                     <div className="rounded-lg bg-muted/30 p-3">
                       <div className="text-xs font-medium text-muted-foreground mb-1">Preview Pesan:</div>
@@ -977,7 +1132,6 @@ export function ScheduleBroadcastPage() {
                         <TableCell>{schedule.task_count || 0} pesan</TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-1">
-                            {/* Tombol Edit hanya muncul jika status BUKAN completed */}
                             {!isCompleted && (
                               <Button
                                 variant="ghost"
@@ -1014,6 +1168,69 @@ export function ScheduleBroadcastPage() {
         </CardContent>
       </Card>
 
+      {/* DIALOG MODAL PUSTAKA DOKUMEN */}
+      <Dialog open={isDocumentPickerOpen} onOpenChange={setIsDocumentPickerOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FolderOpen className="h-5 w-5 text-primary" /> Pilih Berkas dari Pustaka
+            </DialogTitle>
+            <DialogDescription>
+              Gunakan berkas dokumen yang tersimpan di Pustaka Lampiran
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Cari nama dokumen..."
+                value={docSearchQuery}
+                onChange={(e) => setDocSearchQuery(e.target.value)}
+                className="pl-9 text-xs"
+              />
+            </div>
+
+            {isLoadingSavedDocs ? (
+              <div className="flex justify-center items-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              </div>
+            ) : filteredSavedDocs.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <FileText className="h-10 w-10 mx-auto mb-2 opacity-40" />
+                <p className="text-sm">Tidak ada dokumen ditemukan di storage</p>
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {filteredSavedDocs.map((doc) => (
+                  <div
+                    key={doc.id}
+                    className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted/50 cursor-pointer transition-colors"
+                    onClick={() => handleSelectDocument(doc)}
+                  >
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <div className="h-8 w-8 rounded bg-primary/10 flex items-center justify-center shrink-0">
+                        <FileText className="h-4 w-4 text-primary" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-semibold truncate text-foreground">{doc.document_name}</p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {doc.document_type} • {new Date(doc.created_at).toLocaleDateString("id-ID")}
+                        </p>
+                      </div>
+                    </div>
+                    <Button size="sm" variant="ghost" className="text-xs text-primary">
+                      Pilih
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* DIALOG EDIT JADWAL */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <DialogContent>
           <DialogHeader>

@@ -24,7 +24,7 @@ const navItems: {
   { to: "/inbox", label: "Kotak Masuk", icon: Inbox },
   { to: "/broadcast", label: "Siaran Pesan", icon: Send },
   { to: "/document", label: "Pustaka Lampiran", icon: FolderOpen }, 
-  { to: "/patients", label: "Data Kontak Pasien", icon: Users },
+  { to: "/patients", label: "Data Kontak", icon: Users },
   { to: "/schedule", label: "Penjadwalan", icon: Clock },
   { to: "/settings", label: "Pengaturan", icon: Settings },
 ];
