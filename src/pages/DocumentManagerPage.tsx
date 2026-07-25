@@ -156,7 +156,7 @@ export function DocumentManagerPage() {
               <Upload className="h-5 w-5 text-primary" /> Unggah Berkas Baru
             </CardTitle>
             <CardDescription>
-              Simpan file PDF, Gambar, atau Dokumen langsung ke Supabase Storage
+              Simpan file PDF, Gambar, atau Dokumen langsung ke Storage
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
