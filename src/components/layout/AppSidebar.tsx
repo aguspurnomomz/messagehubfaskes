@@ -9,6 +9,7 @@ import {
   Heart,
   Users,
   Clock,
+  FolderOpen, 
 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { cn } from "@/lib/utils";
@@ -22,6 +23,7 @@ const navItems: {
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/inbox", label: "Kotak Masuk", icon: Inbox },
   { to: "/broadcast", label: "Siaran Pesan", icon: Send },
+  { to: "/document", label: "Pustaka Lampiran", icon: FolderOpen }, 
   { to: "/patients", label: "Data Kontak Pasien", icon: Users },
   { to: "/schedule", label: "Penjadwalan", icon: Clock },
   { to: "/settings", label: "Pengaturan", icon: Settings },

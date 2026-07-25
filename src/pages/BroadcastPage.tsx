@@ -43,10 +43,14 @@ import {
   Download,
   Filter,
   Upload,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Paperclip,
+  X,
+  File
 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import * as XLSX from "xlsx";
+import { uploadAndSaveDocument } from "@/lib/documentService";
 
 interface PatientOption {
   id: string;
@@ -151,12 +155,16 @@ export function BroadcastPage() {
   const [newTemplateContent, setNewTemplateContent] = useState("");
   const [isCreatingTemplate, setIsCreatingTemplate] = useState(false);
 
- 
   const [isEditTemplateOpen, setIsEditTemplateOpen] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<MessageTemplate | null>(null);
   const [editTemplateTitle, setEditTemplateTitle] = useState("");
   const [editTemplateContent, setEditTemplateContent] = useState("");
   const [isUpdatingTemplate, setIsUpdatingTemplate] = useState(false);
+
+  // State Lampiran / Attachment
+  const [selectedAttachment, setSelectedAttachment] = useState<File | null>(null);
+  const [attachmentPreviewUrl, setAttachmentPreviewUrl] = useState<string | null>(null);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
 
   const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -225,6 +233,38 @@ export function BroadcastPage() {
       setGroupMembersForManage([]);
     }
   }, [selectedManageGroup, manageTab]);
+
+  // Handler Pilih Lampiran File
+  const handleAttachmentChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 10 * 1024 * 1024) {
+      alert("Ukuran file maksimal adalah 10 MB!");
+      return;
+    }
+
+    setSelectedAttachment(file);
+
+    if (file.type.startsWith("image/")) {
+      const url = URL.createObjectURL(file);
+      setAttachmentPreviewUrl(url);
+    } else {
+      setAttachmentPreviewUrl(null);
+    }
+  };
+
+  // Handler Hapus Lampiran File
+  const handleRemoveAttachment = () => {
+    setSelectedAttachment(null);
+    if (attachmentPreviewUrl) {
+      URL.revokeObjectURL(attachmentPreviewUrl);
+      setAttachmentPreviewUrl(null);
+    }
+    if (attachmentInputRef.current) {
+      attachmentInputRef.current.value = "";
+    }
+  };
 
   const downloadSampleTemplate = (format: "excel" | "txt") => {
     if (format === "excel") {
@@ -1037,7 +1077,14 @@ export function BroadcastPage() {
     return personalized;
   };
 
-  const sendToFonnte = async (phoneNumber: string, messageText: string): Promise<any> => {
+
+ // Nembak API Fonnte dengan Dukungan Parameter File URL & Filename
+  const sendToFonnte = async (
+    phoneNumber: string, 
+    messageText: string, 
+    fileUrl?: string | null,
+    fileName?: string | null
+  ): Promise<any> => {
     if (!clinicSettings?.fonteApiKey) {
       throw new Error("API Key Fonnte tidak ditemukan.");
     }
@@ -1046,6 +1093,17 @@ export function BroadcastPage() {
     const formData = new FormData();
     formData.append('target', formattedPhone);
     formData.append('message', messageText);
+
+    if (fileUrl) {
+      // Masukkan ke 'url' dan 'file' sekaligus untuk kompatibilitas Fonnte
+      formData.append('url', fileUrl);
+      formData.append('file', fileUrl);
+
+      // Kirim nama file jika ada
+      if (fileName) {
+        formData.append('filename', fileName);
+      }
+    }
 
     const response = await fetch('https://api.fonnte.com/send', {
       method: 'POST',
@@ -1067,7 +1125,8 @@ export function BroadcastPage() {
     messageType: string,
     messageContent: string,
     status: string,
-    fonteResponseId: string | null = null
+    fonteResponseId: string | null = null,
+    fileUrl: string | null = null
   ) => {
     try {
       await supabase.from('message_logs').insert({
@@ -1077,6 +1136,7 @@ export function BroadcastPage() {
         status: status,
         delivery_time: new Date().toISOString(),
         fonte_response_id: fonteResponseId,
+        file_url: fileUrl
       });
 
       fetchRecentDeliveries();
@@ -1091,8 +1151,8 @@ export function BroadcastPage() {
       return;
     }
 
-    if (!message.trim()) {
-      alert("Pesan tidak boleh kosong!");
+    if (!message.trim() && !selectedAttachment) {
+      alert("Pesan atau lampiran file tidak boleh kosong!");
       return;
     }
 
@@ -1106,8 +1166,28 @@ export function BroadcastPage() {
     const messageType = selectedTemplateTitle;
 
     try {
-      const result = await sendToFonnte(selectedPatient.phone_number, fullMessage);
-      await saveMessageLog(selectedPatient.id, messageType, fullMessage, 'sent', result.id || null);
+      let uploadedUrl: string | null = null;
+
+      // 1. Upload File Lampiran jika ada
+      if (selectedAttachment) {
+        const { publicUrl } = await uploadAndSaveDocument(
+          selectedAttachment,
+          selectedPatient.id,
+          selectedTemplateTitle
+        );
+        uploadedUrl = publicUrl;
+      }
+
+      // 2. Kirim via Fonnte
+      const result = await sendToFonnte(
+        selectedPatient.phone_number, 
+        fullMessage, 
+        uploadedUrl, 
+        selectedAttachment?.name
+      );
+      
+      // 3. Simpan Log
+      await saveMessageLog(selectedPatient.id, messageType, fullMessage, 'sent', result.id || null, uploadedUrl);
       
       setSuccessMessage(`Pesan berhasil dikirim ke ${selectedPatient.name}`);
       setShowSuccessToast(true);
@@ -1134,8 +1214,8 @@ export function BroadcastPage() {
       return;
     }
 
-    if (!message.trim()) {
-      alert("Pesan tidak boleh kosong!");
+    if (!message.trim() && !selectedAttachment) {
+      alert("Pesan atau lampiran file tidak boleh kosong!");
       return;
     }
 
@@ -1149,47 +1229,64 @@ export function BroadcastPage() {
 
     let successCount = 0;
     let failedCount = 0;
+    let uploadedUrl: string | null = null;
 
-    for (let i = 0; i < groupMembers.length; i++) {
-      const member = groupMembers[i];
-      const personalizedMessage = getPersonalizedMessage(member.name, message, member.custom_value_1);
-      const messageType = selectedTemplateTitle;
-
-      setSendProgress(prev => ({ ...prev, current: i + 1 }));
-
-      try {
-        const result = await sendToFonnte(member.phone_number, personalizedMessage);
-        await saveMessageLog(member.patient_id, messageType, personalizedMessage, 'sent', result.id || null);
-        successCount++;
-        setSendProgress(prev => ({ ...prev, success: successCount }));
-      } catch (error: any) {
-        await saveMessageLog(member.patient_id, messageType, personalizedMessage, 'failed', null);
-        failedCount++;
-        setSendProgress(prev => ({ ...prev, failed: failedCount }));
-        console.error(`Failed to send to ${member.name}:`, error);
+    try {
+      // 1. Upload File Lampiran Sekali untuk Broadcast Grup (jika ada file)
+      if (selectedAttachment) {
+        const { publicUrl } = await uploadAndSaveDocument(
+          selectedAttachment,
+          null, // Broadcast grup
+          selectedTemplateTitle
+        );
+        uploadedUrl = publicUrl;
       }
 
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
+      // 2. Kirim Iteratif ke Setiap Anggota Grup
+      for (let i = 0; i < groupMembers.length; i++) {
+        const member = groupMembers[i];
+        const personalizedMessage = getPersonalizedMessage(member.name, message, member.custom_value_1);
+        const messageType = selectedTemplateTitle;
 
-    const summary = `Berhasil mengirim ${successCount} pesan, ${failedCount} gagal.`;
-    if (failedCount === 0) {
-      setSuccessMessage(summary);
-      setShowSuccessToast(true);
-      resetForm();
-    } else {
-      setErrorMessage(summary);
+        setSendProgress(prev => ({ ...prev, current: i + 1 }));
+
+        try {
+          const result = await sendToFonnte(member.phone_number, personalizedMessage, uploadedUrl);
+          await saveMessageLog(member.patient_id, messageType, personalizedMessage, 'sent', result.id || null, uploadedUrl);
+          successCount++;
+          setSendProgress(prev => ({ ...prev, success: successCount }));
+        } catch (error: any) {
+          await saveMessageLog(member.patient_id, messageType, personalizedMessage, 'failed', null, uploadedUrl);
+          failedCount++;
+          setSendProgress(prev => ({ ...prev, failed: failedCount }));
+          console.error(`Failed to send to ${member.name}:`, error);
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+
+      const summary = `Berhasil mengirim ${successCount} pesan, ${failedCount} gagal.`;
+      if (failedCount === 0) {
+        setSuccessMessage(summary);
+        setShowSuccessToast(true);
+        resetForm();
+      } else {
+        setErrorMessage(summary);
+        setShowErrorToast(true);
+      }
+    } catch (error: any) {
+      setErrorMessage(error.message || "Gagal mengunggah file lampiran broadcast");
       setShowErrorToast(true);
+    } finally {
+      setTimeout(() => {
+        setShowSuccessToast(false);
+        setShowErrorToast(false);
+      }, 5000);
+      
+      setIsSending(false);
+      setSelectedGroup(null);
+      setGroupMembers([]);
     }
-    
-    setTimeout(() => {
-      setShowSuccessToast(false);
-      setShowErrorToast(false);
-    }, 5000);
-    
-    setIsSending(false);
-    setSelectedGroup(null);
-    setGroupMembers([]);
   };
 
   const handleSendMessage = () => {
@@ -1205,6 +1302,7 @@ export function BroadcastPage() {
     setSingleCustomValue("");
     setSelectedGroup(null);
     setGroupMembers([]);
+    handleRemoveAttachment();
     if (templates.length > 0) {
       setSelectedTemplateId(templates[0].id);
       setSelectedTemplateTitle(templates[0].title);
@@ -1280,9 +1378,9 @@ export function BroadcastPage() {
 
   const isSendDisabled = () => {
     if (sendMode === "single") {
-      return isSending || !selectedPatient || !message.trim() || !clinicSettings?.fonteApiKey;
+      return isSending || !selectedPatient || (!message.trim() && !selectedAttachment) || !clinicSettings?.fonteApiKey;
     } else {
-      return isSending || !selectedGroup || groupMembers.length === 0 || !message.trim() || !clinicSettings?.fonteApiKey;
+      return isSending || !selectedGroup || groupMembers.length === 0 || (!message.trim() && !selectedAttachment) || !clinicSettings?.fonteApiKey;
     }
   };
 
@@ -1291,13 +1389,14 @@ export function BroadcastPage() {
       return `Mengirim ${sendProgress.current} dari ${sendProgress.total} pesan... (${sendProgress.success} berhasil, ${sendProgress.failed} gagal)`;
     }
     if (isSending) {
-      return "Mengirim...";
+      return "Mengunggah file & mengirim...";
     }
     return "Kirim via WhatsApp";
   };
 
   return (
     <div className="space-y-6">
+      {/* Hidden File Input Import Template */}
       <input
         type="file"
         ref={fileInputRef}
@@ -1306,10 +1405,19 @@ export function BroadcastPage() {
         className="hidden"
       />
 
+      {/* Hidden File Input Upload Lampiran */}
+      <input
+        type="file"
+        ref={attachmentInputRef}
+        onChange={handleAttachmentChange}
+        accept=".pdf, .png, .jpg, .jpeg, .xlsx, .docx"
+        className="hidden"
+      />
+
       <div>
         <h2 className="text-2xl font-semibold tracking-tight">Pusat Pengiriman Pesan</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Buat dan kirim pesan WhatsApp dengan variabel dinamis
+          Buat dan kirim pesan WhatsApp dengan variabel dinamis &amp; lampiran berkas
         </p>
       </div>
 
@@ -1319,7 +1427,7 @@ export function BroadcastPage() {
             <CardHeader>
               <CardTitle>Komposer Pesan</CardTitle>
               <CardDescription>
-                Buat pesan siaran dengan variabel dinamis
+                Buat pesan siaran dengan variabel dinamis &amp; lampiran
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -1654,11 +1762,75 @@ export function BroadcastPage() {
                   value={message}
                   onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setMessage(e.target.value)}
                   placeholder="Tulis pesan Anda di sini... Gunakan {{value1}} untuk nilai kustom"
-                  className="flex min-h-[200px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 font-mono"
+                  className="flex min-h-[160px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 font-mono"
                 />
                 <p className="text-xs text-muted-foreground">
                   Tips: Gunakan {"{{name}}"}, {"{{value1}}"} (nilai kustom), dan {"{{queueNo}}"} sebagai variabel dinamis
                 </p>
+              </div>
+
+              <div className="rounded-lg border border-amber-200 bg-amber-50/80 p-3 text-xs text-amber-900 shadow-sm">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="h-4 w-4 shrink-0 text-amber-600 mt-0.5" />
+                  <div>
+                    <p className="font-semibold text-amber-950">Catatan Pengiriman Lampiran :</p>
+                    <p className="mt-0.5 text-amber-800">
+                      Fitur pengiriman berkas langsung ke WhatsApp membutuhkan paket <span className="font-semibold underline">Advanced, Super, atau Ultra</span> di Layanan kami. Jika Anda menggunakan paket <strong>Freemium</strong>, file tetap akan ter-upload ke storage kami tetapi tidak akan ikut terkirim di pesan WA.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* SECTION LAMPIRAN FILE (ATTACHMENT) */}
+              <div className="space-y-2 pt-2 border-t border-border">
+                <label className="text-sm font-medium text-foreground flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Paperclip className="h-4 w-4 text-primary" /> Lampirkan Berkas / File
+                  </span>
+                  <span className="text-xs text-muted-foreground font-normal">PDF, Gambar, Docx (Maks. 10MB)</span>
+                </label>
+
+                {!selectedAttachment ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => attachmentInputRef.current?.click()}
+                    className="w-full border-dashed gap-2 text-muted-foreground hover:text-foreground"
+                  >
+                    <Paperclip className="h-4 w-4" /> Pilih Dokumen / Gambar
+                  </Button>
+                ) : (
+                  <div className="flex items-center justify-between p-2.5 bg-muted/60 border border-border rounded-lg text-sm">
+                    <div className="flex items-center gap-2.5 overflow-hidden">
+                      {selectedAttachment.type.startsWith("image/") ? (
+                        <img
+                          src={attachmentPreviewUrl || ""}
+                          alt="preview"
+                          className="h-9 w-9 object-cover rounded border"
+                        />
+                      ) : (
+                        <div className="h-9 w-9 bg-primary/10 rounded flex items-center justify-center shrink-0">
+                          <File className="h-5 w-5 text-primary" />
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <p className="font-medium text-xs truncate text-foreground">{selectedAttachment.name}</p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {(selectedAttachment.size / (1024 * 1024)).toFixed(2)} MB
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={handleRemoveAttachment}
+                      className="h-7 w-7 text-muted-foreground hover:text-red-600 shrink-0"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
               </div>
 
               <div className="rounded-lg bg-gray-50 p-3 border border-gray-200">
@@ -1683,6 +1855,7 @@ export function BroadcastPage() {
           </Card>
         </div>
 
+        {/* PANEL PRATINJAU LANGSUNG (WHATSAPP PREVIEW) */}
         <div className="space-y-4">
           <Card className="h-full">
             <CardHeader>
@@ -1714,10 +1887,33 @@ export function BroadcastPage() {
 
                 <div className="bg-[#ECE5DD] min-h-[500px] px-3 py-4 space-y-3">
                   <div className="flex justify-end">
-                    <div className="max-w-[80%] bg-[#DCF8C6] rounded-lg px-3 py-2 shadow-sm">
-                      <div className="text-sm whitespace-pre-wrap break-words">
-                        {getPreviewMessage() || "Pesan Anda akan muncul di sini..."}
+                    <div className="max-w-[85%] bg-[#DCF8C6] rounded-lg p-2.5 shadow-sm space-y-2">
+                      
+                      {/* PREVIEW GAMBAR ATAU DOKUMEN DALAM BALON WA */}
+                      {selectedAttachment && (
+                        <div className="rounded bg-black/5 p-2 overflow-hidden border border-black/10">
+                          {selectedAttachment.type.startsWith("image/") && attachmentPreviewUrl ? (
+                            <img
+                              src={attachmentPreviewUrl}
+                              alt="Attachment preview"
+                              className="w-full h-36 object-cover rounded mb-1"
+                            />
+                          ) : (
+                            <div className="flex items-center gap-2 p-1">
+                              <FileText className="h-6 w-6 text-primary shrink-0" />
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs font-semibold truncate text-gray-800">{selectedAttachment.name}</p>
+                                <p className="text-[10px] text-gray-500">Dokumen Lampiran</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="text-sm whitespace-pre-wrap break-words text-gray-800">
+                        {getPreviewMessage() || (selectedAttachment ? "" : "Pesan Anda akan muncul di sini...")}
                       </div>
+
                       <div className="text-[10px] text-gray-500 text-right mt-1">
                         {new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
                       </div>
@@ -1744,7 +1940,7 @@ export function BroadcastPage() {
                     </div>
                   )}
 
-                  {!getPreviewMessage() && (
+                  {!getPreviewMessage() && !selectedAttachment && (
                     <div className="flex justify-center items-center h-64">
                       <div className="text-center text-gray-400">
                         <AlertCircle className="h-8 w-8 mx-auto mb-2" />
@@ -1780,6 +1976,7 @@ export function BroadcastPage() {
         </div>
       </div>
 
+      {/* SECTION AKTIVITAS TERBARU */}
       <Card className="border-border/80 shadow-sm mt-6">
         <CardHeader>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -1946,6 +2143,7 @@ export function BroadcastPage() {
         </CardContent>
       </Card>
 
+      {/* DIALOG TEMPLATE PESAN */}
       <Dialog open={isTemplateDialogOpen} onOpenChange={setIsTemplateDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
@@ -2067,6 +2265,7 @@ export function BroadcastPage() {
         </DialogContent>
       </Dialog>
 
+      {/* DIALOG BUAT TEMPLATE MANUAL */}
       <Dialog open={isCreateTemplateOpen} onOpenChange={setIsCreateTemplateOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -2110,6 +2309,7 @@ export function BroadcastPage() {
         </DialogContent>
       </Dialog>
 
+      {/* DIALOG EDIT TEMPLATE */}
       <Dialog open={isEditTemplateOpen} onOpenChange={setIsEditTemplateOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -2153,6 +2353,7 @@ export function BroadcastPage() {
         </DialogContent>
       </Dialog>
 
+      {/* DIALOG KELOLA GRUP */}
       <Dialog open={isManageGroupsOpen} onOpenChange={setIsManageGroupsOpen}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
@@ -2372,6 +2573,7 @@ export function BroadcastPage() {
         </DialogContent>
       </Dialog>
 
+      {/* TOAST SUKSES */}
       {showSuccessToast && (
         <div className="fixed bottom-4 right-4 z-50 animate-in slide-in-from-right-5 fade-in duration-300">
           <div className="bg-green-600 text-white rounded-lg shadow-lg px-4 py-3 flex items-center gap-3">
@@ -2384,6 +2586,7 @@ export function BroadcastPage() {
         </div>
       )}
 
+      {/* TOAST GAGAL */}
       {showErrorToast && (
         <div className="fixed bottom-4 right-4 z-50 animate-in slide-in-from-right-5 fade-in duration-300">
           <div className="bg-red-600 text-white rounded-lg shadow-lg px-4 py-3 flex items-center gap-3">

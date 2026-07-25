@@ -12,6 +12,7 @@ import { ProfilePage } from "@/pages/ProfilePage";
 import { LandingPage } from "@/pages/LandingPage";
 import { TermsPage } from "@/pages/TermsPage";
 import { InboxPage } from "@/pages/InboxPage";
+import { DocumentManagerPage } from "./pages/DocumentManagerPage";
 
 // ========================================================
 // KOMPONEN PEMBANTU: Mengembalikan Posisi Scroll ke Atas
@@ -50,6 +51,7 @@ export default function App() {
             <Route path="/broadcast" element={<BroadcastPage />} />
             <Route path="/inbox" element={<InboxPage />} /> 
             <Route path="/schedule" element={<ScheduleBroadcastPage />} />
+            <Route path="/document" element={<DocumentManagerPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/profile" element={<ProfilePage />} />
           </Route>
