@@ -36,11 +36,14 @@ import {
   UserPlus, 
   Variable, 
   PlusCircle,
-  Activity,        // Icon untuk Aktivitas Terbaru
-  MessageCircle,   // Icon untuk Tipe Pesan
-  Calendar         // Icon untuk Ulang Tahun
+  Activity,
+  MessageCircle,
+  Calendar,
+  Download,       // Icon untuk Export Excel
+  Filter          // Icon untuk Filter
 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
+import * as XLSX from "xlsx"; // Import SheetJS
 
 interface PatientOption {
   id: string;
@@ -92,7 +95,6 @@ interface MessageTemplate {
   created_at: string;
 }
 
-// Interface Riwayat Aktivitas Terbaru
 interface RecentDelivery {
   id: string;
   patientName: string;
@@ -105,6 +107,7 @@ interface RecentDelivery {
 
 type SendMode = "single" | "group";
 type ManageTab = "create" | "members";
+type DateFilterType = "today" | "weekly" | "monthly" | "custom";
 
 export function BroadcastPage() {
   const [sendMode, setSendMode] = useState<SendMode>("single");
@@ -142,9 +145,12 @@ export function BroadcastPage() {
   const [newTemplateContent, setNewTemplateContent] = useState("");
   const [isCreatingTemplate, setIsCreatingTemplate] = useState(false);
   
-  // State Aktivitas Terbaru & Pagination
+  // State Aktivitas Terbaru & Filter Tanggal
   const [recentDeliveries, setRecentDeliveries] = useState<RecentDelivery[]>([]);
   const [isLoadingDeliveries, setIsLoadingDeliveries] = useState(false);
+  const [dateFilter, setDateFilter] = useState<DateFilterType>("weekly");
+  const [startDate, setStartDate] = useState<string>("");
+  const [endDate, setEndDate] = useState<string>("");
   const [currentPage, setCurrentPage] = useState<number>(1);
   const itemsPerPage = 5;
 
@@ -170,8 +176,11 @@ export function BroadcastPage() {
     fetchGroups();
     fetchClinicSettings();
     fetchTemplates();
-    fetchRecentDeliveries();
   }, []);
+
+  useEffect(() => {
+    fetchRecentDeliveries();
+  }, [dateFilter, startDate, endDate]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -202,10 +211,11 @@ export function BroadcastPage() {
     }
   }, [selectedManageGroup, manageTab]);
 
+  // Fetch Aktivitas Terbaru dengan Filter Tanggal (Harian, Mingguan, Bulanan, Custom)
   const fetchRecentDeliveries = async () => {
     setIsLoadingDeliveries(true);
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('message_logs')
         .select(`
           id,
@@ -218,8 +228,31 @@ export function BroadcastPage() {
             name
           )
         `)
-        .order('created_at', { ascending: false })
-        .limit(20);
+        .order('created_at', { ascending: false });
+
+      const now = new Date();
+
+      if (dateFilter === "today") {
+        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+        query = query.gte('created_at', startOfDay);
+      } else if (dateFilter === "weekly") {
+        const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+        query = query.gte('created_at', sevenDaysAgo);
+      } else if (dateFilter === "monthly") {
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+        query = query.gte('created_at', startOfMonth);
+      } else if (dateFilter === "custom") {
+        if (startDate) {
+          query = query.gte('created_at', new Date(startDate).toISOString());
+        }
+        if (endDate) {
+          const endOfDay = new Date(endDate);
+          endOfDay.setHours(23, 59, 59, 999);
+          query = query.lte('created_at', endOfDay.toISOString());
+        }
+      }
+
+      const { data, error } = await query;
 
       if (error) throw error;
 
@@ -227,19 +260,56 @@ export function BroadcastPage() {
         id: item.id,
         patientName: item.patients?.name || 'Unknown',
         messageType: item.message_type,
-        messageContent: item.message_content.substring(0, 80) + (item.message_content.length > 80 ? '...' : ''),
+        messageContent: item.message_content,
         status: item.status,
         timestamp: item.created_at,
         created_at: item.created_at
       }));
 
       setRecentDeliveries(deliveries);
-      setCurrentPage(1); // Reset ke halaman 1 saat fetch ulang
+      setCurrentPage(1);
     } catch (error) {
       console.error('Error fetching recent deliveries:', error);
     } finally {
       setIsLoadingDeliveries(false);
     }
+  };
+
+  // Fungsi Export Data ke Excel (.xlsx)
+  const exportToExcel = () => {
+    if (recentDeliveries.length === 0) {
+      alert("Tidak ada data riwayat untuk diexport!");
+      return;
+    }
+
+    const exportData = recentDeliveries.map((item, index) => ({
+      No: index + 1,
+      "Nama Pasien": item.patientName,
+      "Tipe Pesan": item.messageType,
+      "Isi Pesan": item.messageContent,
+      Status: item.status === "sent" ? "Terkirim" : "Gagal",
+      "Waktu Pengiriman": new Date(item.created_at).toLocaleString("id-ID", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      }),
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(exportData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Riwayat Broadcast");
+
+    // Setting lebar kolom otomatis
+    worksheet["!cols"] = [
+      { wch: 5 },
+      { wch: 25 },
+      { wch: 20 },
+      { wch: 50 },
+      { wch: 12 },
+      { wch: 22 },
+    ];
+
+    const fileName = `Riwayat_Pengiriman_Pesan_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    XLSX.writeFile(workbook, fileName);
   };
 
   const getTimeAgo = (timestamp: string) => {
@@ -266,7 +336,6 @@ export function BroadcastPage() {
     return mapping[type] || { icon: <MessageCircle className="h-3 w-3" />, label: type, color: "text-gray-600 bg-gray-50" };
   };
 
-  // Perhitungan Pagination untuk Aktivitas Terbaru
   const totalPages = Math.ceil(recentDeliveries.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const paginatedDeliveries = recentDeliveries.slice(startIndex, startIndex + itemsPerPage);
@@ -833,7 +902,6 @@ export function BroadcastPage() {
         fonte_response_id: fonteResponseId,
       });
 
-      // Reload Aktivitas Terbaru secara otomatis saat ada pesan terkirim
       fetchRecentDeliveries();
     } catch (error: any) {
       console.error('Error saving message log:', error);
@@ -1513,10 +1581,10 @@ export function BroadcastPage() {
         </div>
       </div>
 
-      {/* SECTION: AKTIVITAS TERBARU (DENGAN PAGINATION PER 5 PESAN) */}
+      {/* SECTION: AKTIVITAS TERBARU (DENGAN FILTER TANGGAL & EXPORT EXCEL) */}
       <Card className="border-border/80 shadow-sm mt-6">
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <CardTitle className="flex items-center gap-2">
                 <Activity className="h-5 w-5 text-primary" />
@@ -1526,8 +1594,52 @@ export function BroadcastPage() {
                 Riwayat pengiriman pesan terbaru
               </CardDescription>
             </div>
-            <div className="text-xs text-muted-foreground">
-              Menampilkan {recentDeliveries.length} riwayat terakhir
+
+            {/* OPSI FILTER & EXPORT */}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1 bg-muted px-2 py-1 rounded-md">
+                <Filter className="h-3.5 w-3.5 text-muted-foreground" />
+                <select
+                  className="bg-transparent text-xs font-medium focus:outline-none cursor-pointer"
+                  value={dateFilter}
+                  onChange={(e) => setDateFilter(e.target.value as DateFilterType)}
+                >
+                  <option value="today">Hari Ini</option>
+                  <option value="weekly">Mingguan (7 Hari)</option>
+                  <option value="monthly">Bulan Ini</option>
+                  <option value="custom">Kustom Tanggal</option>
+                </select>
+              </div>
+
+              {/* INPUT TANGGAL KUSTOM */}
+              {dateFilter === "custom" && (
+                <div className="flex items-center gap-1">
+                  <Input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="h-8 text-xs w-32"
+                  />
+                  <span className="text-xs text-muted-foreground">s/d</span>
+                  <Input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="h-8 text-xs w-32"
+                  />
+                </div>
+              )}
+
+              {/* TOMBOL EXPORT EXCEL */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={exportToExcel}
+                className="h-8 gap-1.5 text-xs border-green-200 text-green-700 hover:bg-green-50 hover:text-green-800"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Export Excel
+              </Button>
             </div>
           </div>
         </CardHeader>
@@ -1540,9 +1652,9 @@ export function BroadcastPage() {
             ) : recentDeliveries.length === 0 ? (
               <div className="text-center py-8">
                 <MessageCircle className="h-12 w-12 text-muted-foreground mx-auto mb-3 opacity-40" />
-                <p className="text-sm text-muted-foreground">Belum ada pengiriman pesan</p>
+                <p className="text-sm text-muted-foreground">Tidak ada riwayat pengiriman pesan</p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Kirim pesan broadcast pertama Anda untuk melihat riwayat aktivitas di sini
+                  Coba ubah filter tanggal untuk melihat riwayat lainnya
                 </p>
               </div>
             ) : (
