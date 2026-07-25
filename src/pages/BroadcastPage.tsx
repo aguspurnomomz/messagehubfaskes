@@ -39,11 +39,11 @@ import {
   Activity,
   MessageCircle,
   Calendar,
-  Download,       // Icon untuk Export Excel
-  Filter          // Icon untuk Filter
+  Download,
+  Filter
 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
-import * as XLSX from "xlsx"; // Import SheetJS
+import * as XLSX from "xlsx";
 
 interface PatientOption {
   id: string;
@@ -116,6 +116,9 @@ export function BroadcastPage() {
   const [isLoadingPatients, setIsLoadingPatients] = useState(false);
   const [selectedPatient, setSelectedPatient] = useState<PatientOption | null>(null);
   
+  // State Nilai Kustom untuk Kirim Satuan
+  const [singleCustomValue, setSingleCustomValue] = useState<string>("");
+
   const [groups, setGroups] = useState<GroupOption[]>([]);
   const [isLoadingGroups, setIsLoadingGroups] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<GroupOption | null>(null);
@@ -211,7 +214,6 @@ export function BroadcastPage() {
     }
   }, [selectedManageGroup, manageTab]);
 
-  // Fetch Aktivitas Terbaru dengan Filter Tanggal (Harian, Mingguan, Bulanan, Custom)
   const fetchRecentDeliveries = async () => {
     setIsLoadingDeliveries(true);
     try {
@@ -275,7 +277,6 @@ export function BroadcastPage() {
     }
   };
 
-  // Fungsi Export Data ke Excel (.xlsx)
   const exportToExcel = () => {
     if (recentDeliveries.length === 0) {
       alert("Tidak ada data riwayat untuk diexport!");
@@ -298,7 +299,6 @@ export function BroadcastPage() {
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Riwayat Broadcast");
 
-    // Setting lebar kolom otomatis
     worksheet["!cols"] = [
       { wch: 5 },
       { wch: 25 },
@@ -925,7 +925,8 @@ export function BroadcastPage() {
     }
 
     setIsSending(true);
-    const fullMessage = getPersonalizedMessage(selectedPatient.name, message);
+    // Menggunakan singleCustomValue untuk Kirim Satuan
+    const fullMessage = getPersonalizedMessage(selectedPatient.name, message, singleCustomValue);
     const messageType = selectedTemplateTitle;
 
     try {
@@ -1025,6 +1026,7 @@ export function BroadcastPage() {
 
   const resetForm = () => {
     setSelectedPatient(null);
+    setSingleCustomValue("");
     setSelectedGroup(null);
     setGroupMembers([]);
     if (templates.length > 0) {
@@ -1068,10 +1070,11 @@ export function BroadcastPage() {
   };
 
   const getPreviewCustomValue = () => {
-    if (sendMode === "group" && groupMembers.length > 0) {
-      return groupMembers[0].custom_value_1 || "";
+    if (sendMode === "single") {
+      return singleCustomValue || "";
+    } else {
+      return groupMembers.length > 0 ? groupMembers[0].custom_value_1 || "" : "";
     }
-    return "";
   };
 
   const getPreviewPatientName = () => {
@@ -1255,6 +1258,22 @@ export function BroadcastPage() {
                     {selectedPatient && (
                       <p className="text-xs text-green-600">✓ Terpilih: {selectedPatient.name}</p>
                     )}
+                  </div>
+
+                  {/* INPUT NILAI KUSTOM UNTUK KIRIM SATUAN */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground flex items-center gap-1.5">
+                      <Variable className="h-4 w-4 text-primary" />
+                      Nilai Kustom <span className="text-xs text-muted-foreground font-normal">({"{{value1}}"})</span>
+                    </label>
+                    <Input
+                      placeholder="Contoh: Rp 150.000, 30 November 2026, atau Hasil Normal"
+                      value={singleCustomValue}
+                      onChange={(e) => setSingleCustomValue(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Nilai ini akan otomatis menggantikan variabel {"{{value1}}"} pada isi pesan.
+                    </p>
                   </div>
                 </div>
               )}
@@ -1453,11 +1472,11 @@ export function BroadcastPage() {
                   ref={textareaRef}
                   value={message}
                   onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setMessage(e.target.value)}
-                  placeholder="Tulis pesan Anda di sini... Gunakan {{value1}} untuk nilai kustom per anggota"
+                  placeholder="Tulis pesan Anda di sini... Gunakan {{value1}} untuk nilai kustom"
                   className="flex min-h-[200px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 font-mono"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Tips: Gunakan {"{{name}}"}, {"{{value1}}"} (nilai kustom per anggota), dan {"{{queueNo}}"} sebagai variabel dinamis
+                  Tips: Gunakan {"{{name}}"}, {"{{value1}}"} (nilai kustom), dan {"{{queueNo}}"} sebagai variabel dinamis
                 </p>
               </div>
 
@@ -1525,11 +1544,11 @@ export function BroadcastPage() {
                     </div>
                   </div>
 
-                  {sendMode === "group" && groupMembers.length > 0 && groupMembers[0].custom_value_1 && (
+                  {getPreviewCustomValue() && (
                     <div className="flex justify-end">
                       <div className="max-w-[80%] bg-[#DCF8C6] rounded-lg px-3 py-2 shadow-sm opacity-70">
                         <div className="text-xs whitespace-pre-wrap break-words text-gray-600">
-                          💡 Nilai Kustom: {groupMembers[0].custom_value_1}
+                          💡 Nilai Kustom: {getPreviewCustomValue()}
                         </div>
                       </div>
                     </div>
@@ -1595,7 +1614,6 @@ export function BroadcastPage() {
               </CardDescription>
             </div>
 
-            {/* OPSI FILTER & EXPORT */}
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex items-center gap-1 bg-muted px-2 py-1 rounded-md">
                 <Filter className="h-3.5 w-3.5 text-muted-foreground" />
@@ -1611,7 +1629,6 @@ export function BroadcastPage() {
                 </select>
               </div>
 
-              {/* INPUT TANGGAL KUSTOM */}
               {dateFilter === "custom" && (
                 <div className="flex items-center gap-1">
                   <Input
@@ -1630,7 +1647,6 @@ export function BroadcastPage() {
                 </div>
               )}
 
-              {/* TOMBOL EXPORT EXCEL */}
               <Button
                 variant="outline"
                 size="sm"
@@ -1715,7 +1731,6 @@ export function BroadcastPage() {
                   })}
                 </div>
 
-                {/* KONTROL PAGINATION */}
                 {totalPages > 1 && (
                   <div className="flex items-center justify-between pt-4 border-t border-border/50 text-xs text-muted-foreground">
                     <span>
