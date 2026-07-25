@@ -20,9 +20,9 @@ const navItems: {
   end?: boolean;
 }[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, end: true },
-  { to: "/patients", label: "Data Kontak Pasien", icon: Users },
-  { to: "/broadcast", label: "Siaran Pesan", icon: Send },
   { to: "/inbox", label: "Kotak Masuk", icon: Inbox },
+  { to: "/broadcast", label: "Siaran Pesan", icon: Send },
+  { to: "/patients", label: "Data Kontak Pasien", icon: Users },
   { to: "/schedule", label: "Penjadwalan", icon: Clock },
   { to: "/settings", label: "Pengaturan", icon: Settings },
 ];

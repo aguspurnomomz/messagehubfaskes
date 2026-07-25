@@ -24,7 +24,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Calendar as CalendarIcon, Plus, Trash2, Users, User, Loader2, CheckCircle, XCircle} from "lucide-react";
+import { Calendar as CalendarIcon, Plus, Trash2, Pencil, Users, User, Loader2, CheckCircle, XCircle } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { format } from "date-fns";
 import { id } from "date-fns/locale";
@@ -76,12 +76,10 @@ interface CustomRecipient {
   customValue: string;
 }
 
-
 const formatDateTime = (dateString: string) => {
   const date = new Date(dateString);
   return format(date, "EEEE, d MMMM yyyy 'pukul' HH:mm", { locale: id });
 };
-
 
 const getStatusBadge = (status: string) => {
   switch (status) {
@@ -129,6 +127,12 @@ export function ScheduleBroadcastPage() {
   
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [selectedSchedule, setSelectedSchedule] = useState<ScheduledBroadcast | null>(null);
+
+  // State untuk Edit Jadwal
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editScheduledTime, setEditScheduledTime] = useState("");
+  const [isUpdating, setIsUpdating] = useState(false);
 
   useEffect(() => {
     fetchSchedules();
@@ -296,7 +300,6 @@ export function ScheduleBroadcastPage() {
     }
   };
 
-
   const formatPersonalMessage = (
     messageTemplate: string,
     patientName: string,
@@ -318,7 +321,6 @@ export function ScheduleBroadcastPage() {
     return formatted;
   };
 
-
   const generateGroupTasks = async (broadcastId: string) => {
     const tasks = [];
     for (const member of groupMembers) {
@@ -338,7 +340,6 @@ export function ScheduleBroadcastPage() {
     }
     return tasks;
   };
-
 
   const generateCustomTasks = async (broadcastId: string) => {
     const tasks = [];
@@ -461,6 +462,70 @@ export function ScheduleBroadcastPage() {
     }
   };
 
+  // Trigger Buka Dialog Edit Jadwal
+  const handleOpenEdit = (schedule: ScheduledBroadcast) => {
+    setSelectedSchedule(schedule);
+    setEditTitle(schedule.title);
+    
+    // Format ISO ke datetime-local (YYYY-MM-DDTHH:mm)
+    const dt = new Date(schedule.scheduled_time);
+    const localIso = new Date(dt.getTime() - dt.getTimezoneOffset() * 60000)
+      .toISOString()
+      .slice(0, 16);
+    setEditScheduledTime(localIso);
+    
+    setIsEditDialogOpen(true);
+  };
+
+  // Handler Simpan Perubahan Edit Jadwal
+  const handleUpdateSchedule = async () => {
+    if (!selectedSchedule) return;
+
+    if (!editTitle.trim()) {
+      alert("Judul jadwal harus diisi!");
+      return;
+    }
+
+    if (!editScheduledTime) {
+      alert("Waktu pelaksanaan harus diisi!");
+      return;
+    }
+
+    const scheduleDate = new Date(editScheduledTime);
+    if (scheduleDate <= new Date()) {
+      alert("Waktu pelaksanaan harus di masa depan!");
+      return;
+    }
+
+    setIsUpdating(true);
+    try {
+      const { error } = await supabase
+        .from('scheduled_broadcasts')
+        .update({
+          title: editTitle.trim(),
+          scheduled_time: new Date(editScheduledTime).toISOString(),
+        })
+        .eq('id', selectedSchedule.id);
+
+      if (error) throw error;
+
+      await fetchSchedules();
+
+      setSuccessMessage(`Jadwal "${editTitle}" berhasil diperbarui!`);
+      setShowSuccessToast(true);
+      setTimeout(() => setShowSuccessToast(false), 3000);
+      setIsEditDialogOpen(false);
+      setSelectedSchedule(null);
+    } catch (error: any) {
+      console.error('Error updating schedule:', error);
+      setErrorMessage(error.message || "Gagal memperbarui jadwal");
+      setShowErrorToast(true);
+      setTimeout(() => setShowErrorToast(false), 3000);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
   const handleDeleteSchedule = async () => {
     if (!selectedSchedule) return;
 
@@ -504,11 +569,9 @@ export function ScheduleBroadcastPage() {
     ]);
   };
 
-
   const removeCustomRecipient = (id: string) => {
     setCustomRecipients(customRecipients.filter((r) => r.id !== id));
   };
-
 
   const updateCustomRecipient = (id: string, field: keyof CustomRecipient, value: string) => {
     setCustomRecipients(
@@ -839,16 +902,16 @@ export function ScheduleBroadcastPage() {
                     </div>
                   </div>
 
-                    <div className="space-y-2">
+                  <div className="space-y-2">
                     <label className="text-sm font-medium">
-                        Nilai Kustom ({`{{value1}}`})
+                      Nilai Kustom ({`{{value1}}`})
                     </label>
                     <Input
-                        placeholder="Contoh: Rp 500,000 atau Hasil Normal"
-                        value={recipient.customValue}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateCustomRecipient(recipient.id, "customValue", e.target.value)}
+                      placeholder="Contoh: Rp 500,000 atau Hasil Normal"
+                      value={recipient.customValue}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateCustomRecipient(recipient.id, "customValue", e.target.value)}
                     />
-                    </div>
+                  </div>
                   {recipient.templateContent && recipient.patientName && (
                     <div className="rounded-lg bg-muted/30 p-3">
                       <div className="text-xs font-medium text-muted-foreground mb-1">Preview Pesan:</div>
@@ -903,27 +966,47 @@ export function ScheduleBroadcastPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {schedules.map((schedule) => (
-                    <TableRow key={schedule.id}>
-                      <TableCell className="font-medium">{schedule.title}</TableCell>
-                      <TableCell>{formatDateTime(schedule.scheduled_time)}</TableCell>
-                      <TableCell>{getStatusBadge(schedule.status)}</TableCell>
-                      <TableCell>{schedule.task_count || 0} pesan</TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-muted-foreground hover:text-red-600"
-                          onClick={() => {
-                            setSelectedSchedule(schedule);
-                            setIsDeleteDialogOpen(true);
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {schedules.map((schedule) => {
+                    const isCompleted = schedule.status === "completed";
+
+                    return (
+                      <TableRow key={schedule.id}>
+                        <TableCell className="font-medium">{schedule.title}</TableCell>
+                        <TableCell>{formatDateTime(schedule.scheduled_time)}</TableCell>
+                        <TableCell>{getStatusBadge(schedule.status)}</TableCell>
+                        <TableCell>{schedule.task_count || 0} pesan</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            {/* Tombol Edit hanya muncul jika status BUKAN completed */}
+                            {!isCompleted && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="text-muted-foreground hover:text-blue-600"
+                                onClick={() => handleOpenEdit(schedule)}
+                                title="Edit Jadwal"
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                            )}
+
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-muted-foreground hover:text-red-600"
+                              onClick={() => {
+                                setSelectedSchedule(schedule);
+                                setIsDeleteDialogOpen(true);
+                              }}
+                              title="Hapus Jadwal"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
@@ -931,6 +1014,46 @@ export function ScheduleBroadcastPage() {
         </CardContent>
       </Card>
 
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Jadwal Pesan Siaran</DialogTitle>
+            <DialogDescription>
+              Ubah judul atau waktu pelaksanaan untuk jadwal ini.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Judul Jadwal</label>
+              <Input
+                value={editTitle}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditTitle(e.target.value)}
+                placeholder="Judul jadwal..."
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Waktu Pelaksanaan</label>
+              <Input
+                type="datetime-local"
+                value={editScheduledTime}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditScheduledTime(e.target.value)}
+                className="w-full"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+              Batal
+            </Button>
+            <Button onClick={handleUpdateSchedule} disabled={isUpdating}>
+              {isUpdating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Simpan Perubahan
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* DIALOG HAPUS JADWAL */}
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <DialogContent>
           <DialogHeader>
