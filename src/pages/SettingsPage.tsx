@@ -261,7 +261,7 @@ export function SettingsPage() {
       <div>
         <h2 className="text-2xl font-semibold tracking-tight">Pengaturan</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Konfigurasi profil klinik, integrasi, dan pengaturan notifikasi.
+          Konfigurasi profil klinik, integrasi dan pengaturan notifikasi.
         </p>
       </div>
 
