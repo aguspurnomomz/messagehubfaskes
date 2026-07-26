@@ -37,6 +37,7 @@ import {
   FolderOpen, 
   FileText, 
   Paperclip, 
+  AlertCircle, 
   X, 
   Search 
 } from "lucide-react";
@@ -794,6 +795,7 @@ export function ScheduleBroadcastPage() {
                 </div>
               </div>
 
+
               {selectedGroup && (
                 <>
                   <div className="text-sm text-muted-foreground">
@@ -836,13 +838,26 @@ export function ScheduleBroadcastPage() {
                     />
                   </div>
 
-                  {/* LAMPIRAN DOKUMEN GRUP */}
+                  
+
                   <div className="space-y-2 pt-2 border-t border-border">
                     <label className="text-sm font-medium flex items-center justify-between">
                       <span className="flex items-center gap-1.5">
                         <Paperclip className="h-4 w-4 text-primary" /> Berkas Lampiran Grup (Opsional)
                       </span>
                     </label>
+
+                     <div className="rounded-lg border border-amber-200 bg-amber-50/80 p-3 text-xs text-amber-900 shadow-sm">
+                          <div className="flex items-start gap-2">
+                            <AlertCircle className="h-4 w-4 shrink-0 text-amber-600 mt-0.5" />
+                            <div>
+                              <p className="font-semibold text-amber-950">Catatan Pengiriman Lampiran :</p>
+                              <p className="mt-0.5 text-amber-800">
+                                Fitur pengiriman berkas langsung ke WhatsApp membutuhkan paket <span className="font-semibold underline">Advanced, Super, atau Ultra</span>pada Layanan kami. Jika Anda menggunakan paket <strong>Freemium</strong>, file tetap akan terunggah ke penyimpanan kami tetapi tidak akan ikut terkirim di pesan WA.
+                              </p>
+                            </div>
+                          </div>
+                    </div>
 
                     {!selectedGroupDocument ? (
                       <Button
@@ -851,7 +866,7 @@ export function ScheduleBroadcastPage() {
                         onClick={() => handleOpenDocumentPicker("group")}
                         className="w-full border-dashed gap-2 text-xs text-primary border-primary/30 hover:bg-primary/5"
                       >
-                        <FolderOpen className="h-4 w-4" /> Pilih Dokumen / Berkas dari Storage
+                        <FolderOpen className="h-4 w-4" /> Pilih Dokumen / Lampiran File
                       </Button>
                     ) : (
                       <div className="flex items-center justify-between p-2.5 bg-muted/60 border border-border rounded-lg text-sm">
