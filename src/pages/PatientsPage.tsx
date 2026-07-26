@@ -692,14 +692,14 @@ export function PatientsPage() {
                 <DialogTrigger asChild>
                   <Button className="gap-2">
                     <UserPlus className="h-4 w-4" />
-                    Tambah Pasien
+                    Tambah Kontak 
                   </Button>
                 </DialogTrigger>
                 <DialogContent>
                   <DialogHeader>
-                    <DialogTitle>Tambah Pasien Baru</DialogTitle>
+                    <DialogTitle>Tambah Kontak Baru</DialogTitle>
                     <DialogDescription>
-                      Isi informasi pasien di bawah ini
+                      Isi informasi detail kontak pasien di bawah ini
                     </DialogDescription>
                   </DialogHeader>
                   <div className="space-y-4 py-4">

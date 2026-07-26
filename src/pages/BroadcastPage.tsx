@@ -2232,7 +2232,7 @@ export function BroadcastPage() {
               <FolderOpen className="h-5 w-5 text-primary" /> Pilih Berkas dari Pustaka
             </DialogTitle>
             <DialogDescription>
-              Gunakan file yang sudah pernah diunggah sebelumnya di Storage Supabase
+              Gunakan file yang sudah pernah diunggah sebelumnya
             </DialogDescription>
           </DialogHeader>
 

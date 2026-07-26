@@ -686,7 +686,7 @@ export function ScheduleBroadcastPage() {
       <div>
         <h2 className="text-2xl font-semibold tracking-tight">Penjadwalan Pesan Siaran</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Atur pengiriman pesan otomatis di waktu mendatang
+          Atur pengiriman pesan otomatis di berdasarkan pengaturan yang sudah disimpan
         </p>
       </div>
 
