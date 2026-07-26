@@ -1227,7 +1227,7 @@ export function BroadcastPage() {
         fileName = selectedExistingDocument.document_name;
       }
 
-      // 2. Kirim via Fonnte
+  
       const result = await sendToFonnte(
         selectedPatient.phone_number, 
         fullMessage, 
@@ -1454,12 +1454,11 @@ export function BroadcastPage() {
     if (isSending) {
       return "Mengunggah file & mengirim...";
     }
-    return "Kirim via WhatsApp";
+    return "Kirim Pesan";
   };
 
   return (
     <div className="space-y-6">
-      {/* Hidden File Input Import Template */}
       <input
         type="file"
         ref={fileInputRef}
@@ -1468,7 +1467,6 @@ export function BroadcastPage() {
         className="hidden"
       />
 
-      {/* Hidden File Input Upload Lampiran */}
       <input
         type="file"
         ref={attachmentInputRef}
@@ -1838,13 +1836,12 @@ export function BroadcastPage() {
                   <div>
                     <p className="font-semibold text-amber-950">Catatan Pengiriman Lampiran :</p>
                     <p className="mt-0.5 text-amber-800">
-                      Fitur pengiriman berkas langsung ke WhatsApp membutuhkan paket <span className="font-semibold underline">Advanced, Super, atau Ultra</span> di Layanan kami. Jika Anda menggunakan paket <strong>Freemium</strong>, file tetap akan ter-upload ke storage kami tetapi tidak akan ikut terkirim di pesan WA.
+                      Fitur pengiriman berkas langsung ke WhatsApp membutuhkan paket <span className="font-semibold underline">Advanced, Super, atau Ultra</span>pada Layanan kami. Jika Anda menggunakan paket <strong>Freemium</strong>, file tetap akan terunggah ke penyimpanan kami tetapi tidak akan ikut terkirim di pesan WA.
                     </p>
                   </div>
                 </div>
               </div>
 
-              {/* SECTION LAMPIRAN FILE (ATTACHMENT) */}
               <div className="space-y-2 pt-2 border-t border-border">
                 <label className="text-sm font-medium text-foreground flex items-center justify-between">
                   <span className="flex items-center gap-1.5">

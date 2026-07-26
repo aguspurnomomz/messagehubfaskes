@@ -127,7 +127,7 @@ export function DocumentManagerPage() {
       <div>
         <h2 className="text-2xl font-semibold tracking-tight">Manajemen Lampiran & Dokumen</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Kelola pustaka berkas yang tersimpan di Storage
+          Kelola pustaka berkas yang tersimpan di cloud
         </p>
       </div>
 
@@ -156,7 +156,7 @@ export function DocumentManagerPage() {
               <Upload className="h-5 w-5 text-primary" /> Unggah Berkas Baru
             </CardTitle>
             <CardDescription>
-              Simpan file PDF, Gambar, atau Dokumen langsung ke Storage
+              Simpan file PDF, Gambar, atau Dokumen langsung ke penyimpanan berbasis cloud
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -209,7 +209,7 @@ export function DocumentManagerPage() {
               className="w-full gap-2 mt-2"
             >
               {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-              {isUploading ? "Mengunggah..." : "Unggah ke Storage"}
+              {isUploading ? "Mengunggah..." : "Unggah"}
             </Button>
           </CardContent>
         </Card>
@@ -223,7 +223,7 @@ export function DocumentManagerPage() {
                   <HardDrive className="h-5 w-5 text-primary" /> Berkas Tersimpan
                 </CardTitle>
                 <CardDescription>
-                  Total {documents.length} dokumen ada di database
+                  Total {documents.length} dokumen tersimpan
                 </CardDescription>
               </div>
 
