@@ -97,7 +97,6 @@ export function DocumentManagerPage() {
         }
         }
 
-        // Hapus baris metadata dari database
         const { error: dbError } = await supabase.from("user_documents").delete().eq("id", doc.id);
         if (dbError) throw dbError;
 
@@ -214,7 +213,6 @@ export function DocumentManagerPage() {
           </CardContent>
         </Card>
 
-        {/* TABEL DAFTAR DOKUMEN TERSIMPAN */}
         <Card className="lg:col-span-2">
           <CardHeader>
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">

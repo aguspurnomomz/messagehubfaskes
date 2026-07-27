@@ -817,7 +817,7 @@ export function DashboardPage() {
             Dashboard
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Ringkasan aktivitas pesan klinik Anda
+            Ringkasan aktivitas pengiriman pesan
           </p>
         </div>
 

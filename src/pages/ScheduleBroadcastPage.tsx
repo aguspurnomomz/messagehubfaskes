@@ -1245,7 +1245,6 @@ export function ScheduleBroadcastPage() {
         </DialogContent>
       </Dialog>
 
-      {/* DIALOG EDIT JADWAL */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -1285,7 +1284,6 @@ export function ScheduleBroadcastPage() {
         </DialogContent>
       </Dialog>
 
-      {/* DIALOG HAPUS JADWAL */}
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <DialogContent>
           <DialogHeader>

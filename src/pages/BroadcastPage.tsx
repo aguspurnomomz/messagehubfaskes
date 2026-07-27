@@ -244,8 +244,7 @@ export function BroadcastPage() {
       setGroupMembersForManage([]);
     }
   }, [selectedManageGroup, manageTab]);
-
-  // Fetch Dokumen dari Supabase Database & Storage
+  
   const fetchSavedDocuments = async () => {
     setIsLoadingSavedDocs(true);
     try {
@@ -2224,7 +2223,6 @@ export function BroadcastPage() {
         </CardContent>
       </Card>
 
-      {/* DIALOG PUSTAKA DOKUMEN (STORAGE) */}
       <Dialog open={isDocumentPickerOpen} onOpenChange={setIsDocumentPickerOpen}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
