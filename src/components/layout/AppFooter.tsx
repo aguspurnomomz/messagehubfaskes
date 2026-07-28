@@ -19,7 +19,7 @@ export function AppFooter({
 
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         {/* <span className="hidden sm:inline">Dibuat</span> */}
-        <span className="hidden sm:inline">Versi beta 1.1.0 Dibuat untuk fasilitas kesehatan</span>
+        <span className="hidden sm:inline">Versi beta 1.1.2 Dibuat untuk fasilitas kesehatan</span>
       </div>
     </footer>
   );

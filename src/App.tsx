@@ -13,6 +13,8 @@ import { LandingPage } from "@/pages/LandingPage";
 import { TermsPage } from "@/pages/TermsPage";
 import { InboxPage } from "@/pages/InboxPage";
 import { DocumentManagerPage } from "@/pages/DocumentManagerPage";
+import { TermsPageDash } from "@/pages/TermsPageDash";
+import { DocsPage } from "@/pages/DocsPage";
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -50,6 +52,8 @@ export default function App() {
             <Route path="/document" element={<DocumentManagerPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/termsinfo" element={<TermsPageDash />} />
+            <Route path="/docs" element={<DocsPage />} />
           </Route>
         </Route>
 

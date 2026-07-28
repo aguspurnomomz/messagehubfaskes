@@ -10,6 +10,8 @@ import {
   Users,
   Clock,
   FolderOpen, 
+  BookOpen,
+  FileText
 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { cn } from "@/lib/utils";
@@ -26,7 +28,9 @@ const navItems: {
   { to: "/document", label: "Pustaka Lampiran", icon: FolderOpen }, 
   { to: "/patients", label: "Data Kontak", icon: Users },
   { to: "/schedule", label: "Penjadwalan", icon: Clock },
-  { to: "/settings", label: "Pengaturan", icon: Settings },
+  { to: "/docs", label: "Dokumentasi", icon: BookOpen }, 
+  { to: "/termsinfo", label: "Syarat & Ketentuan", icon: FileText },
+  { to: "/settings", label: "Pengaturan", icon: Settings }
 ];
 
 interface ClinicData {

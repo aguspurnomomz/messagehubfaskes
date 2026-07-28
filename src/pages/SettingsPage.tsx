@@ -499,7 +499,7 @@ export function SettingsPage() {
                     value={settings.fonteDeviceId}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateSettings("fonteDeviceId", e.target.value)}
                     className="pl-10"
-                    placeholder="Masukkan Fonnte Device ID"
+                    placeholder="Masukkan Device ID"
                   />
                 </div>
               </div>
