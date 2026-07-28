@@ -123,7 +123,7 @@ export function TermsPageDash() {
             Jika Anda memiliki pertanyaan mengenai Syarat dan Ketentuan ini atau membutuhkan bantuan teknis terkait integrasi sistem, silakan hubungi tim dukungan kami melalui:
           </p>
           <div className="p-3 bg-muted/50 rounded-lg text-xs space-y-1 font-mono text-foreground border border-border">
-            <p><strong>Email Support:</strong> support@mediflowhub.site</p>
+            <p><strong>Email Support:</strong> support@mediflowhub.com</p>
             <p><strong>Helpdesk WhatsApp:</strong> +62 813-2443-9591</p>
             <p><strong>Jam Operasional:</strong> Senin - Jumat (08.00 - 17.00 WIB)</p>
           </div>
