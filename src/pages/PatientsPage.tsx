@@ -615,9 +615,9 @@ export function PatientsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-semibold tracking-tight">Data Kontak Pasien Penerima Pesan</h2>
+        <h2 className="text-2xl font-semibold tracking-tight">Data Kontak Pasien</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Kelola data pasien penerima pesan, untuk pengiriman pesan Whatsapp.
+          Kelola data penerima pesan, untuk pengiriman pesan broadcast atau notifikasi.
         </p>
       </div>
 
@@ -625,9 +625,9 @@ export function PatientsPage() {
         <CardHeader>
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
-              <CardTitle>Direktori Pasien</CardTitle>
+              <CardTitle>Direktori Kontak</CardTitle>
               <CardDescription>
-                Lihat dan kelola semua data pasien yang terdaftar
+                Lihat dan kelola semua data kontak pasien yang terdaftar
               </CardDescription>
             </div>
             <div className="flex gap-2">

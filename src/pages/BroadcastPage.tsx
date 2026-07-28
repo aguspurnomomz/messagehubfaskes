@@ -1487,7 +1487,7 @@ export function BroadcastPage() {
             <CardHeader>
               <CardTitle>Komposer Pesan</CardTitle>
               <CardDescription>
-                Buat pesan siaran dengan variabel dinamis &amp; lampiran
+                Buat pesan siaran dengan variabel dinamis &amp; lampiran dokumen
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -1939,8 +1939,8 @@ export function BroadcastPage() {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div>
-                  <CardTitle>Pratinjau Langsung</CardTitle>
-                  <CardDescription>Pratinjau pesan WhatsApp secara real-time</CardDescription>
+                  <CardTitle>Pratinjau Pesan</CardTitle>
+                  {/* <CardDescription>Pratinjau pesan secara real time</CardDescription> */}
                 </div>
                 <Smartphone className="h-5 w-5 text-muted-foreground" />
               </div>
