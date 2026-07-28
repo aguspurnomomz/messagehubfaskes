@@ -188,7 +188,6 @@ export function InboxPage() {
     const messageToSend = replyText.trim();
 
     try {
-      // 1. Ambil Token Fonnte
       const { data: configData } = await supabase
         .from("system_settings")
         .select("value")
@@ -198,7 +197,7 @@ export function InboxPage() {
       const fonnteToken = configData?.value || import.meta.env.VITE_FONNTE_TOKEN;
 
       if (!fonnteToken) {
-        alert("Token Fonnte belum dikonfigurasi di Pengaturan!");
+        alert("Token belum dikonfigurasi di Pengaturan!");
         setIsSendingReply(false);
         return;
       }

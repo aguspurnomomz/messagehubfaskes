@@ -448,7 +448,7 @@ export function SettingsPage() {
                 <div>
                   <CardTitle>Gateway WhatsApp</CardTitle>
                   <CardDescription>
-                    Konfigurasi integrasi Fonnte untuk pengiriman pesan WhatsApp
+                    Konfigurasi integrasi Token API Gateway untuk pengiriman pesan WhatsApp
                   </CardDescription>
                 </div>
               </div>
@@ -457,7 +457,7 @@ export function SettingsPage() {
               <div className="space-y-2">
                 <div className="flex items-center gap-2 text-sm font-medium">
                   <Key className="h-4 w-4" />
-                  Fonnte API Key
+                  Gateway API Key
                 </div>
                 <div className="flex gap-2">
                   <div className="relative flex-1">
@@ -467,7 +467,7 @@ export function SettingsPage() {
                       value={settings.fonteApiKey}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateSettings("fonteApiKey", e.target.value)}
                       className="pl-10"
-                      placeholder="Masukkan Fonnte API Key"
+                      placeholder="Masukkan API Key"
                     />
                   </div>
                   <Button
@@ -535,7 +535,7 @@ export function SettingsPage() {
                     <Shield className="h-4 w-4 text-yellow-600 mt-0.5" />
                     <div className="text-xs text-yellow-800">
                       <span className="font-semibold">Penyimpanan Data:</span> Semua pengaturan
-                      disimpan di database Supabase dan tersinkronisasi di semua perangkat.
+                      disimpan di database dan tersinkronisasi.
                     </div>
                   </div>
                 </div>
@@ -581,7 +581,7 @@ export function SettingsPage() {
             <CheckCircle className="h-4 w-4" />
             <div>
               <p className="font-semibold text-sm">Koneksi Berhasil!</p>
-              <p className="text-xs opacity-90">API Fonnte dapat dijangkau</p>
+              <p className="text-xs opacity-90">API F*n*e dapat dijangkau</p>
             </div>
           </div>
         </div>
