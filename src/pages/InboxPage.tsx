@@ -46,6 +46,10 @@ export function InboxPage() {
   const [loadingChat, setLoadingChat] = useState<boolean>(false);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>("");
+
+  // State Baru untuk Balas Pesan
+  const [replyText, setReplyText] = useState<string>("");
+  const [isSendingReply, setIsSendingReply] = useState<boolean>(false);
   
   const chatBottomRef = useRef<HTMLDivElement>(null);
 
@@ -176,6 +180,80 @@ export function InboxPage() {
     }
   };
 
+  // FUNGSI KIRIM BALASAN PESAN
+  const handleSendReply = async () => {
+    if (!replyText.trim() || !activeContact || isSendingReply) return;
+
+    setIsSendingReply(true);
+    const messageToSend = replyText.trim();
+
+    try {
+      // 1. Ambil Token Fonnte
+      const { data: configData } = await supabase
+        .from("system_settings")
+        .select("value")
+        .eq("key", "fonnte_token")
+        .maybeSingle();
+
+      const fonnteToken = configData?.value || import.meta.env.VITE_FONNTE_TOKEN;
+
+      if (!fonnteToken) {
+        alert("Token Fonnte belum dikonfigurasi di Pengaturan!");
+        setIsSendingReply(false);
+        return;
+      }
+
+      // 2. Kirim Pesan via Fonnte API
+      const formData = new FormData();
+      formData.append("target", activeContact.sender_number);
+      formData.append("message", messageToSend);
+
+      const response = await fetch("https://api.fonnte.com/send", {
+        method: "POST",
+        headers: {
+          Authorization: fonnteToken,
+        },
+        body: formData,
+      });
+
+      const result = await response.json();
+
+      if (result.status) {
+        // 3. Catat Pesan Keluar (Outbound) ke Database message_logs jika pasien terdaftar
+        if (activeContact.patient_id) {
+          const { data: userData } = await supabase.auth.getUser();
+
+          await supabase.from("message_logs").insert({
+            user_id: userData?.user?.id || null,
+            patient_id: activeContact.patient_id,
+            recipient_phone: activeContact.sender_number,
+            message_content: messageToSend,
+            status: "delivered",
+            delivery_time: new Date().toISOString(),
+          });
+        }
+
+        // 4. Update UI Chat History Secara Instan
+        const newChatItem: ChatItem = {
+          id: `out-${Date.now()}`,
+          sender_type: "outbound",
+          message_content: messageToSend,
+          created_at: new Date().toISOString(),
+        };
+
+        setActiveChatHistory((prev) => [...prev, newChatItem]);
+        setReplyText("");
+      } else {
+        alert(`Gagal mengirim pesan: ${result.reason || "Terjadi kesalahan di Fonnte"}`);
+      }
+    } catch (err: any) {
+      console.error("Error sending reply:", err);
+      alert("Terjadi kesalahan saat mengirim balasan.");
+    } finally {
+      setIsSendingReply(false);
+    }
+  };
+
   useEffect(() => {
     fetchConversations();
 
@@ -236,7 +314,7 @@ export function InboxPage() {
           className="gap-2"
         >
           <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
-          Refresh
+          Segarkan
         </Button>
       </div>
 
@@ -317,12 +395,12 @@ export function InboxPage() {
           </Card>
         </div>
 
-        {/* PANEL KANAN: CHAT THREAD DENGAN DATE DIVIDER */}
+        {/* PANEL KANAN: CHAT THREAD DENGAN FORM BALAS PESAN */}
         <div className="lg:col-span-7">
-          <Card className="h-[calc(100vh-220px)] flex flex-col">
+          <Card className="h-[calc(100vh-220px)] flex flex-col overflow-hidden">
             {activeContact ? (
               <>
-                <CardHeader className="border-b pb-4 shadow-sm bg-white rounded-t-xl">
+                <CardHeader className="border-b pb-4 shadow-xs bg-white rounded-t-xl shrink-0">
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3">
                       <div className="h-11 w-11 rounded-full bg-primary/10 flex items-center justify-center text-primary">
@@ -355,6 +433,7 @@ export function InboxPage() {
                   </div>
                 </CardHeader>
 
+                {/* AREA REKAP CHAT */}
                 <CardContent className="flex-1 p-6 overflow-y-auto bg-[#efeae2]/30 space-y-3">
                   {loadingChat ? (
                     <div className="flex justify-center items-center h-full">
@@ -368,7 +447,6 @@ export function InboxPage() {
                     activeChatHistory.map((chat, index) => {
                       const isInbound = chat.sender_type === "inbound";
                       
-                      // Cek apakah perlu menampilkan Pembatas Tanggal
                       const currentDateStr = new Date(chat.created_at).toDateString();
                       const previousDateStr =
                         index > 0
@@ -378,7 +456,6 @@ export function InboxPage() {
 
                       return (
                         <div key={chat.id} className="space-y-3">
-                          {/* DATER DIVIDER KHAS WHATSAPP */}
                           {showDateDivider && (
                             <div className="flex justify-center my-3">
                               <span className="bg-white/90 text-slate-600 text-[11px] font-medium px-3 py-1 rounded-md shadow-xs border border-slate-200/60 uppercase tracking-wider">
@@ -387,14 +464,13 @@ export function InboxPage() {
                             </div>
                           )}
 
-                          {/* BUBBLE CHAT */}
                           <div
                             className={`flex ${
                               isInbound ? "justify-start" : "justify-end"
                             }`}
                           >
                             <div
-                              className={`max-w-[75%] rounded-2xl px-4 py-2.5 shadow-sm border text-sm space-y-1 ${
+                              className={`max-w-[75%] rounded-2xl px-4 py-2.5 shadow-xs border text-sm space-y-1 ${
                                 isInbound
                                   ? "bg-white text-slate-800 rounded-tl-none border-gray-200"
                                   : "bg-[#d9fdd3] text-slate-900 rounded-tr-none border-green-200"
@@ -431,6 +507,37 @@ export function InboxPage() {
                   )}
                   <div ref={chatBottomRef} />
                 </CardContent>
+
+                {/* FORM BALAS PESAN DI KAKI CHAT */}
+                <div className="p-3 bg-white border-t border-border shrink-0">
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      handleSendReply();
+                    }}
+                    className="flex items-center gap-2"
+                  >
+                    <Input
+                      placeholder="Ketik pesan..."
+                      value={replyText}
+                      onChange={(e) => setReplyText(e.target.value)}
+                      disabled={isSendingReply}
+                      className="flex-1 text-sm bg-muted/30 focus-visible:ring-primary"
+                    />
+                    <Button
+                      type="submit"
+                      disabled={!replyText.trim() || isSendingReply}
+                      className="gap-2 shrink-0"
+                    >
+                      {isSendingReply ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Send className="h-4 w-4" />
+                      )}
+                      Kirim
+                    </Button>
+                  </form>
+                </div>
               </>
             ) : (
               <div className="flex-1 flex items-center justify-center p-8 text-center text-muted-foreground">
