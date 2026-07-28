@@ -219,7 +219,6 @@ export function InboxPage() {
       const result = await response.json();
 
       if (result.status) {
-        // 3. Catat Pesan Keluar (Outbound) ke Database message_logs jika pasien terdaftar
         if (activeContact.patient_id) {
           const { data: userData } = await supabase.auth.getUser();
 
@@ -300,7 +299,7 @@ export function InboxPage() {
         <div>
           <h2 className="text-2xl font-semibold tracking-tight">Kotak Masuk</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Daftar balasan dan pesan WhatsApp yang masuk secara real time
+            Daftar pesan masuk yang diterima pada nomor pengiriman
           </p>
         </div>
         <Button
@@ -319,7 +318,6 @@ export function InboxPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* PANEL KIRI: DAFTAR KONTAK */}
         <div className="lg:col-span-5 space-y-4">
           <Card className="h-[calc(100vh-220px)] flex flex-col">
             <CardHeader className="pb-3 border-b">
@@ -343,7 +341,7 @@ export function InboxPage() {
                   <MessageSquare className="h-10 w-10 mx-auto mb-2 opacity-40" />
                   <p className="text-sm font-medium">Belum ada percakapan</p>
                   <p className="text-xs mt-1">
-                    Pesan balasan dari pasien akan otomatis muncul di sini.
+                    Pesan balasan dari nomor kontak pasien akan otomatis muncul di sini.
                   </p>
                 </div>
               ) : (
@@ -423,7 +421,7 @@ export function InboxPage() {
 
                     {activeContact.patient_name ? (
                       <span className="inline-flex items-center gap-1 text-xs font-medium bg-green-50 text-green-700 px-2.5 py-1 rounded-full border border-green-200">
-                        <CheckCircle2 className="h-3 w-3" /> Pasien Terdaftar
+                        <CheckCircle2 className="h-3 w-3" /> Kontak Terdaftar
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1 text-xs font-medium bg-orange-50 text-orange-700 px-2.5 py-1 rounded-full border border-orange-200">
