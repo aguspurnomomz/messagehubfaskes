@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -19,7 +20,7 @@ import {
   DialogTrigger,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Building2, Plus, Shield, Loader2, CheckCircle, XCircle, Pencil, UserCheck, Mail } from "lucide-react";
+import { Building2, Plus, Shield, Loader2, CheckCircle, XCircle, Pencil, UserCheck, Mail, LogOut } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 
 interface ClinicItem {
@@ -34,6 +35,7 @@ interface ClinicItem {
 }
 
 export function SuperAdminPage() {
+  const navigate = useNavigate();
   const [clinics, setClinics] = useState<ClinicItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -105,6 +107,18 @@ export function SuperAdminPage() {
     setTimeout(() => setToastMsg(null), 4000);
   };
 
+  // Handler Logout Superadmin
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      localStorage.removeItem("isLoggedIn");
+      localStorage.removeItem("user");
+      navigate("/login", { replace: true });
+    } catch (err) {
+      console.error("Gagal melakukan logout:", err);
+    }
+  };
+
   const handleCreateClinicAndAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!clinicName || !adminEmail || !adminPassword) {
@@ -153,7 +167,7 @@ export function SuperAdminPage() {
             clinic_id: clinicData.id,
             role: "clinic_admin",
             full_name: adminFullName || clinicName,
-            email: adminEmail, // Menyimpan email ke profiles
+            email: adminEmail,
           });
 
         if (profileErr) throw profileErr;
@@ -256,94 +270,101 @@ export function SuperAdminPage() {
           </p>
         </div>
 
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="gap-2">
-              <Plus className="h-4 w-4" /> Tambah Klinik Baru
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle>Registrasi Klinik & Admin Baru</DialogTitle>
-              <DialogDescription>
-                Sistem akan membuat entitas klinik baru dan akun admin login untuk klinik tersebut.
-              </DialogDescription>
-            </DialogHeader>
+        <div className="flex items-center gap-3">
+          {/* TOMBOL LOGOUT */}
+          <Button variant="outline" onClick={handleLogout} className="gap-2 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700">
+            <LogOut className="h-4 w-4" /> Keluar (Logout)
+          </Button>
 
-            <form onSubmit={handleCreateClinicAndAdmin} className="space-y-4 py-2">
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold">Nama Klinik / Faskes *</label>
-                <Input
-                  placeholder="Contoh: Klinik Sehat Bersama"
-                  value={clinicName}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setClinicName(e.target.value)}
-                  required
-                />
-              </div>
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <DialogTrigger asChild>
+              <Button className="gap-2">
+                <Plus className="h-4 w-4" /> Tambah Klinik Baru
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Registrasi Klinik & Admin Baru</DialogTitle>
+                <DialogDescription>
+                  Sistem akan membuat entitas klinik baru dan akun admin login untuk klinik tersebut.
+                </DialogDescription>
+              </DialogHeader>
 
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold">Paket Langganan *</label>
-                <select
-                  className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs focus:outline-none focus:ring-2 focus:ring-ring"
-                  value={packagePlan}
-                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setPackagePlan(e.target.value)}
-                >
-                  <option value="Freemium">Freemium</option>
-                  <option value="Advanced">Advanced</option>
-                  <option value="Super">Super</option>
-                  <option value="Ultra">Ultra</option>
-                </select>
-              </div>
-
-              <div className="border-t pt-3 space-y-3">
-                <p className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                  <UserCheck className="h-4 w-4 text-primary" /> Kredensial Login Admin Klinik:
-                </p>
-
+              <form onSubmit={handleCreateClinicAndAdmin} className="space-y-4 py-2">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-semibold">Nama Pengelola / Dokter</label>
+                  <label className="text-xs font-semibold">Nama Klinik / Faskes *</label>
                   <Input
-                    placeholder="Contoh: dr. Ahmad Pratama"
-                    value={adminFullName}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAdminFullName(e.target.value)}
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold">Email Login *</label>
-                  <Input
-                    type="email"
-                    placeholder="admin@kliniksehat.com"
-                    value={adminEmail}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAdminEmail(e.target.value)}
+                    placeholder="Contoh: Klinik Sehat Bersama"
+                    value={clinicName}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setClinicName(e.target.value)}
                     required
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs font-semibold">Password Temporary *</label>
-                  <Input
-                    type="password"
-                    placeholder="Minimal 6 karakter"
-                    value={adminPassword}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAdminPassword(e.target.value)}
-                    required
-                  />
+                  <label className="text-xs font-semibold">Paket Langganan *</label>
+                  <select
+                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                    value={packagePlan}
+                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setPackagePlan(e.target.value)}
+                  >
+                    <option value="Freemium">Freemium</option>
+                    <option value="Advanced">Advanced</option>
+                    <option value="Super">Super</option>
+                    <option value="Ultra">Ultra</option>
+                  </select>
                 </div>
-              </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t">
-                <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
-                  Batal
-                </Button>
-                <Button type="submit" disabled={isSubmitting}>
-                  {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                  Simpan & Daftarkan
-                </Button>
-              </div>
-            </form>
-          </DialogContent>
-        </Dialog>
+                <div className="border-t pt-3 space-y-3">
+                  <p className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                    <UserCheck className="h-4 w-4 text-primary" /> Kredensial Login Admin Klinik:
+                  </p>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold">Nama Pengelola / Dokter</label>
+                    <Input
+                      placeholder="Contoh: dr. Ahmad Pratama"
+                      value={adminFullName}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAdminFullName(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold">Email Login *</label>
+                    <Input
+                      type="email"
+                      placeholder="admin@kliniksehat.com"
+                      value={adminEmail}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAdminEmail(e.target.value)}
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold">Password Temporary *</label>
+                    <Input
+                      type="password"
+                      placeholder="Minimal 6 karakter"
+                      value={adminPassword}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAdminPassword(e.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-3 border-t">
+                  <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
+                    Batal
+                  </Button>
+                  <Button type="submit" disabled={isSubmitting}>
+                    {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                    Simpan & Daftarkan
+                  </Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       <Card>
