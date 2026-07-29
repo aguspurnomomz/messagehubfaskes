@@ -52,16 +52,19 @@ Deno.serve(async (req) => {
 
     let clinicId = patient?.clinic_id || null
 
-    // Jika pasien tidak terdaftar/pasien baru, cari clinic_id berdasarkan device/nomor WA klinik di clinic_settings
     if (!clinicId && device) {
+      const cleanDevice = device.replace(/[^0-9]/g, '');
+      let localDev = cleanDevice.startsWith('62') ? '0' + cleanDevice.slice(2) : cleanDevice;
+      let intlDev = cleanDevice.startsWith('0') ? '62' + cleanDevice.slice(1) : cleanDevice;
+
       const { data: setting } = await supabaseAdmin
         .from('clinic_settings')
         .select('clinic_id')
-        .or(`fonnte_device.eq.${device},fonnte_device.eq.62${device.slice(1)}`)
-        .maybeSingle()
+        .or(`fonnte_device.eq.${cleanDevice},fonnte_device.eq.${localDev},fonnte_device.eq.${intlDev}`)
+        .maybeSingle();
 
       if (setting?.clinic_id) {
-        clinicId = setting.clinic_id
+        clinicId = setting.clinic_id;
       }
     }
 

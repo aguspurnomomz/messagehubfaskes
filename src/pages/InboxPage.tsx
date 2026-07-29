@@ -110,7 +110,6 @@ export function InboxPage() {
         return;
       }
 
-      // PERBAIKAN: Gunakan .or() agar data dengan clinic_id = NULL juga terbaca
       const { data, error } = await supabase
         .from("incoming_message_logs")
         .select(`
@@ -122,7 +121,7 @@ export function InboxPage() {
           created_at,
           patients ( name, phone_number )
         `)
-        .or(`clinic_id.eq.${clinicId},clinic_id.is.null`)
+        .eq("clinic_id", clinicId) 
         .order("created_at", { ascending: false });
 
       if (error) throw error;

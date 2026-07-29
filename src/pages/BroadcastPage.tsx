@@ -214,6 +214,7 @@ export function BroadcastPage() {
     const userId = userData?.user?.id;
     if (!userId) return null;
 
+    // 1. Cek dari tabel profiles
     const { data: profile } = await supabase
       .from("profiles")
       .select("clinic_id")
@@ -224,6 +225,19 @@ export function BroadcastPage() {
       setCurrentClinicId(profile.clinic_id);
       return profile.clinic_id;
     }
+
+    // 2. Fallback: Cek dari tabel user_clinics jika profiles.clinic_id kosong
+    const { data: userClinic } = await supabase
+      .from("user_clinics")
+      .select("clinic_id")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (userClinic?.clinic_id) {
+      setCurrentClinicId(userClinic.clinic_id);
+      return userClinic.clinic_id;
+    }
+
     return null;
   };
 
@@ -1228,20 +1242,33 @@ export function BroadcastPage() {
     fileUrl: string | null = null
   ) => {
     try {
-      const clinicId = await getUserClinicId(); // <-- Ambil clinic_id aktif
-      const { data: userData } = await supabase.auth.getUser();
+      const clinicId = await getUserClinicId();
 
-      await supabase.from('message_logs').insert({
-        user_id: userData?.user?.id || null,
-        clinic_id: clinicId, // <-- WAJIB DISERTAKAN AGAR TERBACA DI DASHBOARD
-        patient_id: patientId,
-        message_type: messageType,
-        messageContent: messageContent,
-        status: status,
-        delivery_time: new Date().toISOString(),
-        fonte_response_id: fonteResponseId,
-        file_url: fileUrl
-      });
+      if (!clinicId) {
+        console.error("Gagal menyimpan log: clinic_id tidak ditemukan!");
+        return;
+      }
+
+      // Hapus 'user_id' karena kolom tersebut tidak ada di tabel message_logs
+      const { data, error } = await supabase
+        .from('message_logs')
+        .insert({
+          clinic_id: clinicId,
+          patient_id: patientId,
+          message_type: messageType,
+          message_content: messageContent,
+          status: status,
+          delivery_time: new Date().toISOString(),
+          fonte_response_id: fonteResponseId,
+          file_url: fileUrl
+        })
+        .select();
+
+      if (error) {
+        console.error('Error insert message_logs:', error.message);
+      } else {
+        console.log('Berhasil menyimpan message_log:', data);
+      }
 
       fetchRecentDeliveries();
     } catch (error: any) {

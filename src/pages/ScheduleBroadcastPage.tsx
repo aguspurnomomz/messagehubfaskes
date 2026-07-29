@@ -192,7 +192,7 @@ export function ScheduleBroadcastPage() {
   const [editScheduledTime, setEditScheduledTime] = useState("");
   const [isUpdating, setIsUpdating] = useState(false);
 
-  // Helper Mendapatkan Clinic ID User Aktif
+  // Helper Mendapatkan Clinic ID User Aktif (Dengan Fallback)
   const getUserClinicId = async (): Promise<string | null> => {
     if (currentClinicId) return currentClinicId;
 
@@ -200,6 +200,7 @@ export function ScheduleBroadcastPage() {
     const userId = userData?.user?.id;
     if (!userId) return null;
 
+    // 1. Cek dari tabel profiles
     const { data: profile } = await supabase
       .from("profiles")
       .select("clinic_id")
@@ -210,8 +211,52 @@ export function ScheduleBroadcastPage() {
       setCurrentClinicId(profile.clinic_id);
       return profile.clinic_id;
     }
+
+    // 2. Fallback: Cek dari tabel user_clinics
+    const { data: userClinic } = await supabase
+      .from("user_clinics")
+      .select("clinic_id")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (userClinic?.clinic_id) {
+      setCurrentClinicId(userClinic.clinic_id);
+      return userClinic.clinic_id;
+    }
+
     return null;
   };
+
+  // Helper Simpan Ke Log Pesan
+  // const saveMessageLog = async (
+  //   patientId: string,
+  //   messageType: string,
+  //   messageContent: string,
+  //   status: string,
+  //   fallbackClinicId?: string,
+  //   fileUrl: string | null = null
+  // ) => {
+  //   try {
+  //     const clinicId = (await getUserClinicId()) || fallbackClinicId;
+
+  //     if (!clinicId) {
+  //       console.error("Gagal menyimpan log: clinic_id tidak ditemukan!");
+  //       return;
+  //     }
+
+  //     await supabase.from('message_logs').insert({
+  //       clinic_id: clinicId,
+  //       patient_id: patientId,
+  //       message_type: messageType,
+  //       message_content: messageContent,
+  //       status: status,
+  //       delivery_time: new Date().toISOString(),
+  //       file_url: fileUrl
+  //     });
+  //   } catch (error) {
+  //     console.error('Error saving scheduled message log:', error);
+  //   }
+  // };
 
   useEffect(() => {
     fetchSchedules();
@@ -445,13 +490,11 @@ export function ScheduleBroadcastPage() {
     }
   };
 
-  // Handler Buka Modal Template
   const handleOpenTemplatePicker = (target: "group" | string) => {
     setActiveTemplateTarget(target);
     setIsTemplateDialogOpen(true);
   };
 
-  // Handler Pilih Template dari Modal
   const handleTemplateSelect = (template: MessageTemplate) => {
     if (activeTemplateTarget === "group") {
       setGroupMessage(template.content);
@@ -731,7 +774,7 @@ export function ScheduleBroadcastPage() {
     return formatted;
   };
 
-  const generateGroupTasks = async (broadcastId: string, clinicId: string) => {
+  const generateGroupTasks = async (broadcastId: string) => {
     const tasks = [];
     for (const member of groupMembers) {
       const personalizedMessage = formatPersonalMessage(
@@ -741,7 +784,6 @@ export function ScheduleBroadcastPage() {
       );
       tasks.push({
         broadcast_id: broadcastId,
-        clinic_id: clinicId,
         patient_id: member.patient_id,
         phone_number: member.phone_number,
         message_content: personalizedMessage,
@@ -754,7 +796,7 @@ export function ScheduleBroadcastPage() {
     return tasks;
   };
 
-  const generateCustomTasks = async (broadcastId: string, clinicId: string) => {
+  const generateCustomTasks = async (broadcastId: string) => {
     const tasks = [];
     for (const recipient of customRecipients) {
       const personalizedMessage = formatPersonalMessage(
@@ -764,7 +806,6 @@ export function ScheduleBroadcastPage() {
       );
       tasks.push({
         broadcast_id: broadcastId,
-        clinic_id: clinicId,
         patient_id: recipient.patientId,
         phone_number: recipient.patientPhone,
         message_content: personalizedMessage,
@@ -845,9 +886,9 @@ export function ScheduleBroadcastPage() {
 
       let tasks = [];
       if (recipientMode === "group") {
-        tasks = await generateGroupTasks(scheduleData.id, clinicId);
+        tasks = await generateGroupTasks(scheduleData.id);
       } else {
-        tasks = await generateCustomTasks(scheduleData.id, clinicId);
+        tasks = await generateCustomTasks(scheduleData.id);
       }
 
       if (tasks.length > 0) {
@@ -856,6 +897,18 @@ export function ScheduleBroadcastPage() {
           .insert(tasks);
 
         if (tasksError) throw tasksError;
+
+        // Simpan Log Pesan ke Tabel message_logs
+        // for (const task of tasks) {
+        //   await saveMessageLog(
+        //     task.patient_id,
+        //     "Scheduled Broadcast",
+        //     task.message_content,
+        //     "pending",
+        //     clinicId,
+        //     task.file_url
+        //   );
+        // }
       }
 
       setTitle("");
@@ -1163,7 +1216,6 @@ export function ScheduleBroadcastPage() {
                     <p>Anggota grup: {groupMembers.length} orang</p>
                   </div>
 
-                  {/* PEMILIH TEMPLATE PERSIS SAMA DENGAN BROADCAST PAGE */}
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-foreground">Template Pesan (Opsional)</label>
                     <Button
@@ -1226,7 +1278,7 @@ export function ScheduleBroadcastPage() {
                         <div>
                           <p className="font-semibold text-amber-950">Catatan Pengiriman Lampiran :</p>
                           <p className="mt-0.5 text-amber-800">
-                            Fitur pengiriman berkas langsung ke WhatsApp membutuhkan paket <span className="font-semibold underline">Advanced, Super, atau Ultra</span>pada Layanan kami. Jika Anda menggunakan paket <strong>Freemium</strong>, file tetap akan terunggah ke penyimpanan kami tetapi tidak akan ikut terkirim di pesan WA.
+                            Fitur pengiriman berkas langsung ke WhatsApp membutuhkan paket <span className="font-semibold underline">Advanced, Super, atau Ultra</span> pada Layanan kami. Jika Anda menggunakan paket <strong>Freemium</strong>, file tetap akan terunggah ke penyimpanan kami tetapi tidak akan ikut terkirim di pesan WA.
                           </p>
                         </div>
                       </div>
@@ -1386,7 +1438,6 @@ export function ScheduleBroadcastPage() {
                     </div>
                   </div>
 
-                  {/* TOMBOL MODAL TEMPLATE PER PASIEN INDIVIDU */}
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Pilih Template</label>
                     <Button
@@ -1411,7 +1462,6 @@ export function ScheduleBroadcastPage() {
                     />
                   </div>
 
-                  {/* LAMPIRAN DOKUMEN PER PASIEN INDIVIDU */}
                   <div className="space-y-2 pt-2 border-t border-border">
                     <label className="text-sm font-medium flex items-center justify-between">
                       <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -1552,7 +1602,6 @@ export function ScheduleBroadcastPage() {
         </CardContent>
       </Card>
 
-      {/* MODAL DIALOG TEMPLATE PESAN (SAMA DENGAN BROADCAST PAGE) */}
       <Dialog open={isTemplateDialogOpen} onOpenChange={setIsTemplateDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
@@ -1674,7 +1723,6 @@ export function ScheduleBroadcastPage() {
         </DialogContent>
       </Dialog>
 
-      {/* DIALOG BUAT TEMPLATE MANUAL */}
       <Dialog open={isCreateTemplateOpen} onOpenChange={setIsCreateTemplateOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -1718,7 +1766,6 @@ export function ScheduleBroadcastPage() {
         </DialogContent>
       </Dialog>
 
-      {/* DIALOG EDIT TEMPLATE */}
       <Dialog open={isEditTemplateOpen} onOpenChange={setIsEditTemplateOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -1762,7 +1809,6 @@ export function ScheduleBroadcastPage() {
         </DialogContent>
       </Dialog>
 
-      {/* DIALOG MODAL PUSTAKA DOKUMEN */}
       <Dialog open={isDocumentPickerOpen} onOpenChange={setIsDocumentPickerOpen}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
