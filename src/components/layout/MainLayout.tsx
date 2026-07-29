@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { Outlet } from "react-router-dom";
+import { Outlet, Navigate } from "react-router-dom"; // Tambahkan Navigate
 import { AppHeader } from "@/components/layout/AppHeader";
 import { AppSidebar } from "@/components/layout/AppSidebar";
 import { MobileSidebar } from "@/components/layout/MobileSidebar";
-import { AppFooter } from "@/components/layout/AppFooter"; // Tambahkan import
+import { AppFooter } from "@/components/layout/AppFooter"; 
 import { supabase } from "@/lib/supabaseClient";
+import { Loader2 } from "lucide-react"; // Tambahkan Loader2
 
 interface UserData {
   name: string;
@@ -28,31 +29,60 @@ export function MainLayout() {
     name: "Memuat data klinik...",
     logo: null,
   });
+
+  const [isCheckingRole, setIsCheckingRole] = useState(true); // State pengecekan role
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);   // Flag superadmin
   
   const [, setIsLoadingClinic] = useState(true);
 
   useEffect(() => {
-    const getUser = async () => {
+    const getUserAndRole = async () => {
       const { data: { user: supabaseUser } } = await supabase.auth.getUser();
       
       if (supabaseUser) {
+        // Ambil role langsung dari tabel profiles agar valid
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("role, full_name")
+          .eq("id", supabaseUser.id)
+          .maybeSingle();
+
+        const role = profile?.role || supabaseUser.user_metadata?.role || "Medical Staff";
+
+        if (role === "superadmin") {
+          setIsSuperAdmin(true);
+        }
+
         setUser({
-          name: supabaseUser.user_metadata?.name || supabaseUser.email?.split('@')[0] || "User",
+          name: profile?.full_name || supabaseUser.user_metadata?.name || supabaseUser.email?.split('@')[0] || "User",
           email: supabaseUser.email || "",
-          role: supabaseUser.user_metadata?.role || "Medical Staff",
+          role: role,
         });
       }
+      setIsCheckingRole(false);
     };
 
-    getUser();
+    getUserAndRole();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
         if (session?.user) {
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("role, full_name")
+            .eq("id", session.user.id)
+            .maybeSingle();
+
+          const role = profile?.role || session.user.user_metadata?.role || "Medical Staff";
+
+          if (role === "superadmin") {
+            setIsSuperAdmin(true);
+          }
+
           setUser({
-            name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || "User",
+            name: profile?.full_name || session.user.user_metadata?.name || session.user.email?.split('@')[0] || "User",
             email: session.user.email || "",
-            role: session.user.user_metadata?.role || "Medical Staff",
+            role: role,
           });
         }
       }
@@ -69,71 +99,45 @@ export function MainLayout() {
         const userId = userData?.user?.id;
 
         if (!userId) {
-          console.error("User not authenticated");
-          setClinicInfo({
-            name: "Klinik Saya",
-            logo: null,
-          });
           setIsLoadingClinic(false);
           return;
         }
 
-        const { data, error } = await supabase
+        const { data } = await supabase
           .from('clinic_settings')
           .select('clinic_name, clinic_logo')
           .eq('user_id', userId)
           .maybeSingle(); 
 
-        if (error) {
-          console.error("Error fetching clinic settings:", error);
+        if (data) {
           setClinicInfo({
-            name: "ambil data...",
-            logo: null,
-          });
-        } else if (data) {
-          setClinicInfo({
-            name: data.clinic_name || "ambil data...",
+            name: data.clinic_name || "Klinik Saya",
             logo: data.clinic_logo || null,
-          });
-        } else {
-          setClinicInfo({
-            name: "ambil data...",
-            logo: null,
           });
         }
       } catch (error) {
         console.error("Error in fetchClinicSettings:", error);
-        setClinicInfo({
-          name: "ambil data...",
-          logo: null,
-        });
       } finally {
         setIsLoadingClinic(false);
       }
     };
 
     fetchClinicSettings();
-
-    const channel = supabase
-      .channel('clinic_settings_changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'clinic_settings',
-        },
-        (payload) => {
-          console.log('Clinic settings changed:', payload);
-          fetchClinicSettings();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
   }, []);
+
+  // Tampilkan loading sebentar saat mendeteksi role
+  if (isCheckingRole) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-slate-50">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // JIKA AKUN YANG LOGIN ADALAH SUPERADMIN, TOLAK DAN LEMPAR KE /superadmin
+  if (isSuperAdmin) {
+    return <Navigate to="/superadmin" replace />;
+  }
 
   return (
     <div className="flex min-h-screen bg-slate-50">

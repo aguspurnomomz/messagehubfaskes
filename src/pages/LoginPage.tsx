@@ -39,18 +39,35 @@ export function LoginPage() {
       }
 
       if (data?.user) {
+        const userId = data.user.id;
+
+        // Ambil role langsung dari tabel profiles agar akurat
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("role, full_name")
+          .eq("id", userId)
+          .maybeSingle();
+
+        const userRole = profile?.role || "clinic_admin";
+
         localStorage.setItem("isLoggedIn", "true");
         localStorage.setItem(
           "user",
           JSON.stringify({
-            name: data.user.user_metadata?.name || email.split('@')[0],
+            name: profile?.full_name || data.user.user_metadata?.name || email.split('@')[0],
             email: data.user.email,
-            role: data.user.user_metadata?.role || "Medical Staff",
+            role: userRole,
           })
         );
         
         setIsLoading(false);
-        navigate("/dashboard", { replace: true });
+
+        // PENGARAHAN BERDASARKAN ROLE
+        if (userRole === "superadmin") {
+          navigate("/superadmin", { replace: true });
+        } else {
+          navigate("/dashboard", { replace: true });
+        }
       }
     } catch (err: any) {
       console.error("Login error:", err);

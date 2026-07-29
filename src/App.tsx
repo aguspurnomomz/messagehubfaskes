@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { AuthGuard } from "@/components/AuthGuard";
-import { SuperAdminRoute } from "@/components/SuperAdminRoute"; // Import SuperAdminRoute
+import { SuperAdminRoute } from "@/components/SuperAdminRoute"; 
 import { LoginPage } from "@/pages/LoginPage";
 import { BroadcastPage } from "@/pages/BroadcastPage";
 import { DashboardPage } from "@/pages/DashboardPage";
@@ -16,7 +16,7 @@ import { InboxPage } from "@/pages/InboxPage";
 import { DocumentManagerPage } from "@/pages/DocumentManagerPage";
 import { TermsPageDash } from "@/pages/TermsPageDash";
 import { DocsPage } from "@/pages/DocsPage";
-import { SuperAdminPage } from "@/pages/SuperAdminPage"; // Import SuperAdminPage
+import { SuperAdminPage } from "@/pages/SuperAdminPage";
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -35,14 +35,14 @@ export default function App() {
       
       <Routes>
         {/* ========================================================
-            1. HALAMAN PUBLIK (Bisa diakses tanpa login)
+            1. HALAMAN PUBLIK
            ======================================================== */}
         <Route path="/" element={<LandingPage />} />
         <Route path="/terms" element={<TermsPage />} />
         <Route path="/login" element={<LoginPage />} />
         
         {/* ========================================================
-            2. HALAMAN PROTEKSI KLINIK (Harus lewat AuthGuard)
+            2. HALAMAN KLINIK (Hanya untuk Admin/Staff Klinik)
            ======================================================== */}
         <Route element={<AuthGuard />}>
           <Route element={<MainLayout />}>
@@ -60,7 +60,7 @@ export default function App() {
         </Route>
 
         {/* ========================================================
-            3. HALAMAN SUPERADMIN (Khusus Role Superadmin)
+            3. HALAMAN SUPERADMIN (Eksklusif Superadmin Saja)
            ======================================================== */}
         <Route element={<AuthGuard />}>
           <Route element={<SuperAdminRoute />}>
