@@ -20,7 +20,7 @@ import {
   DialogTrigger,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Building2, Plus, Shield, Loader2, CheckCircle, XCircle, Pencil, UserCheck, Mail, LogOut } from "lucide-react";
+import { Building2, Plus, Loader2, CheckCircle, XCircle, Pencil, UserCheck, Mail, LogOut } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 
 interface ClinicItem {
