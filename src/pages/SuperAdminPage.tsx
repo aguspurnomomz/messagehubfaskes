@@ -263,7 +263,7 @@ export function SuperAdminPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <Shield className="h-6 w-6 text-primary" /> Panel Superadmin MediflowHub
+            <h2 className="h-6 w-6 text-primary" /> Panel Superadmin
           </h2>
           <p className="text-sm text-muted-foreground mt-1">
             Kelola pendaftaran faskes/klinik dan hak akses admin klinik
@@ -273,7 +273,7 @@ export function SuperAdminPage() {
         <div className="flex items-center gap-3">
           {/* TOMBOL LOGOUT */}
           <Button variant="outline" onClick={handleLogout} className="gap-2 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700">
-            <LogOut className="h-4 w-4" /> Keluar (Logout)
+            <LogOut className="h-4 w-4" /> Keluar
           </Button>
 
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
@@ -372,7 +372,7 @@ export function SuperAdminPage() {
           <CardTitle className="text-lg flex items-center gap-2">
             <Building2 className="h-5 w-5 text-primary" /> Daftar Klinik Terdaftar
           </CardTitle>
-          <CardDescription>Total {clinics.length} faskes yang aktif di sistem SaaS</CardDescription>
+          <CardDescription>Total {clinics.length} Daftar pengguna layanan</CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
