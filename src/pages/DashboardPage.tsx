@@ -121,6 +121,7 @@ const getStatusBadge = (status: string) => {
 export function DashboardPage() {
   const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(true);
+  const [currentClinicId, setCurrentClinicId] = useState<string | null>(null);
   
   // State Layout Drag & Drop
   const [layoutOrder, setLayoutOrder] = useState<string[]>(() => {
@@ -143,6 +144,27 @@ export function DashboardPage() {
   const [upcomingBirthdays, setUpcomingBirthdays] = useState<UpcomingBirthday[]>([]);
   const [schedules, setSchedules] = useState<ScheduledBroadcast[]>([]);
 
+  // Helper Mendapatkan Clinic ID User Aktif
+  const getUserClinicId = async (): Promise<string | null> => {
+    if (currentClinicId) return currentClinicId;
+
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData?.user?.id;
+    if (!userId) return null;
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("clinic_id")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (profile?.clinic_id) {
+      setCurrentClinicId(profile.clinic_id);
+      return profile.clinic_id;
+    }
+    return null;
+  };
+
   useEffect(() => {
     fetchDashboardData();
   }, []);
@@ -150,12 +172,18 @@ export function DashboardPage() {
   const fetchDashboardData = async () => {
     setIsLoading(true);
     try {
+      const clinicId = await getUserClinicId();
+      if (!clinicId) {
+        setIsLoading(false);
+        return;
+      }
+
       await Promise.all([
-        fetchStats(),
-        fetchMessageTrends(),
-        fetchRecentDeliveries(),
-        fetchUpcomingBirthdays(),
-        fetchSchedules()
+        fetchStats(clinicId),
+        fetchMessageTrends(clinicId),
+        fetchRecentDeliveries(clinicId),
+        fetchUpcomingBirthdays(clinicId),
+        fetchSchedules(clinicId)
       ]);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
@@ -164,15 +192,12 @@ export function DashboardPage() {
     }
   };
 
-  const fetchSchedules = async () => {
+  const fetchSchedules = async (clinicId: string) => {
     try {
-      const { data: userData } = await supabase.auth.getUser();
-      const userId = userData?.user?.id;
-
       const { data, error } = await supabase
         .from('scheduled_broadcasts')
         .select('*')
-        .eq('user_id', userId)
+        .eq('clinic_id', clinicId)
         .order('scheduled_time', { ascending: true })
         .limit(5);
 
@@ -198,7 +223,7 @@ export function DashboardPage() {
     }
   };
 
-  const fetchStats = async () => {
+  const fetchStats = async (clinicId: string) => {
     try {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -208,6 +233,7 @@ export function DashboardPage() {
       const { count: messagesToday, error: messagesError } = await supabase
         .from('message_logs')
         .select('*', { count: 'exact', head: true })
+        .eq('clinic_id', clinicId)
         .gte('created_at', today.toISOString())
         .lt('created_at', tomorrow.toISOString());
 
@@ -216,6 +242,7 @@ export function DashboardPage() {
       const { count: incomingToday, error: incomingError } = await supabase
         .from('incoming_message_logs')
         .select('*', { count: 'exact', head: true })
+        .eq('clinic_id', clinicId)
         .gte('created_at', today.toISOString())
         .lt('created_at', tomorrow.toISOString());
 
@@ -223,7 +250,8 @@ export function DashboardPage() {
 
       const { data: allMessages, error: allError } = await supabase
         .from('message_logs')
-        .select('status');
+        .select('status')
+        .eq('clinic_id', clinicId);
 
       if (allError) throw allError;
 
@@ -238,6 +266,7 @@ export function DashboardPage() {
       const { count: messagesLastWeek, error: lastWeekError } = await supabase
         .from('message_logs')
         .select('*', { count: 'exact', head: true })
+        .eq('clinic_id', clinicId)
         .gte('created_at', lastWeek.toISOString())
         .lt('created_at', today.toISOString());
 
@@ -249,7 +278,8 @@ export function DashboardPage() {
 
       const { data: birthdayData, error: birthdayError } = await supabase
         .from('patients')
-        .select('id, name, date_of_birth');
+        .select('id, name, date_of_birth')
+        .eq('clinic_id', clinicId);
 
       if (birthdayError) throw birthdayError;
 
@@ -269,7 +299,7 @@ export function DashboardPage() {
     }
   };
 
-  const fetchMessageTrends = async () => {
+  const fetchMessageTrends = async (clinicId: string) => {
     try {
       const trends: MessageTrend[] = [];
       const today = new Date();
@@ -285,6 +315,7 @@ export function DashboardPage() {
         const { count, error } = await supabase
           .from('message_logs')
           .select('*', { count: 'exact', head: true })
+          .eq('clinic_id', clinicId)
           .gte('created_at', date.toISOString())
           .lt('created_at', nextDay.toISOString());
         
@@ -303,7 +334,7 @@ export function DashboardPage() {
     }
   };
 
-  const fetchRecentDeliveries = async () => {
+  const fetchRecentDeliveries = async (clinicId: string) => {
     try {
       const { data, error } = await supabase
         .from('message_logs')
@@ -314,10 +345,11 @@ export function DashboardPage() {
           status,
           created_at,
           patient_id,
-          patients!inner (
+          patients (
             name
           )
-        `)
+        `) // <-- Hapus '!inner' agar menggunakan Left Join
+        .eq('clinic_id', clinicId)
         .order('created_at', { ascending: false })
         .limit(10);
 
@@ -325,9 +357,11 @@ export function DashboardPage() {
 
       const deliveries: RecentDelivery[] = (data || []).map((item: any) => ({
         id: item.id,
-        patientName: item.patients?.name || 'Unknown',
+        patientName: item.patients?.name || 'Pasien Umum / Kustom', // <-- Fallback jika pasien null
         messageType: item.message_type,
-        messageContent: item.message_content.substring(0, 50) + (item.message_content.length > 50 ? '...' : ''),
+        messageContent: item.message_content 
+          ? (item.message_content.substring(0, 50) + (item.message_content.length > 50 ? '...' : ''))
+          : '-',
         status: item.status,
         timestamp: item.created_at,
         created_at: item.created_at
@@ -339,11 +373,12 @@ export function DashboardPage() {
     }
   };
 
-  const fetchUpcomingBirthdays = async () => {
+  const fetchUpcomingBirthdays = async (clinicId: string) => {
     try {
       const { data, error } = await supabase
         .from('patients')
-        .select('id, name, date_of_birth');
+        .select('id, name, date_of_birth')
+        .eq('clinic_id', clinicId);
 
       if (error) throw error;
 

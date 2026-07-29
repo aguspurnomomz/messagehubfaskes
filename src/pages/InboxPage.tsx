@@ -41,13 +41,14 @@ export function InboxPage() {
   const [conversations, setConversations] = useState<ContactConversation[]>([]);
   const [activeNumber, setActiveNumber] = useState<string | null>(null);
   const [activeChatHistory, setActiveChatHistory] = useState<ChatItem[]>([]);
+  const [currentClinicId, setCurrentClinicId] = useState<string | null>(null);
   
   const [loading, setLoading] = useState<boolean>(true);
   const [loadingChat, setLoadingChat] = useState<boolean>(false);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>("");
 
-  // State Baru untuk Balas Pesan
+  // State Balas Pesan
   const [replyText, setReplyText] = useState<string>("");
   const [isSendingReply, setIsSendingReply] = useState<boolean>(false);
   
@@ -56,6 +57,27 @@ export function InboxPage() {
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [activeChatHistory]);
+
+  // Helper Mendapatkan Clinic ID User Aktif
+  const getUserClinicId = async (): Promise<string | null> => {
+    if (currentClinicId) return currentClinicId;
+
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData?.user?.id;
+    if (!userId) return null;
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("clinic_id")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (profile?.clinic_id) {
+      setCurrentClinicId(profile.clinic_id);
+      return profile.clinic_id;
+    }
+    return null;
+  };
 
   const formatDateDivider = (dateString: string) => {
     const msgDate = new Date(dateString);
@@ -80,6 +102,15 @@ export function InboxPage() {
   const fetchConversations = async (showRefreshLoader = false) => {
     if (showRefreshLoader) setIsRefreshing(true);
     try {
+      const clinicId = await getUserClinicId();
+      if (!clinicId) {
+        setConversations([]);
+        setLoading(false);
+        setIsRefreshing(false);
+        return;
+      }
+
+      // PERBAIKAN: Gunakan .or() agar data dengan clinic_id = NULL juga terbaca
       const { data, error } = await supabase
         .from("incoming_message_logs")
         .select(`
@@ -91,6 +122,7 @@ export function InboxPage() {
           created_at,
           patients ( name, phone_number )
         `)
+        .or(`clinic_id.eq.${clinicId},clinic_id.is.null`)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
@@ -130,25 +162,34 @@ export function InboxPage() {
   const fetchChatHistory = async (phone: string) => {
     setLoadingChat(true);
     try {
+      const clinicId = await getUserClinicId();
+      if (!clinicId) return;
+
       const cleanPhone = phone.replace(/\D/g, "");
       const searchPattern = cleanPhone.startsWith("62") ? cleanPhone.slice(2) : cleanPhone;
 
+      // PERBAIKAN: Gunakan .or() agar inbound message ber-clinic_id NULL ikut tampil di chat thread
       const { data: inboundData } = await supabase
         .from("incoming_message_logs")
         .select("id, message_content, created_at")
+        .or(`clinic_id.eq.${clinicId},clinic_id.is.null`)
         .eq("sender_number", phone);
 
+      // Filter Pasien
       const { data: patientData } = await supabase
         .from("patients")
         .select("id")
+        .eq("clinic_id", clinicId)
         .ilike("phone_number", `%${searchPattern}%`)
         .maybeSingle();
 
       let outboundData: any[] = [];
       if (patientData) {
+        // Filter Outbound Log
         const { data: logs } = await supabase
           .from("message_logs")
           .select("id, message_content, created_at, delivery_time")
+          .eq("clinic_id", clinicId)
           .eq("patient_id", patientData.id);
         
         if (logs) outboundData = logs;
@@ -184,6 +225,12 @@ export function InboxPage() {
   const handleSendReply = async () => {
     if (!replyText.trim() || !activeContact || isSendingReply) return;
 
+    const clinicId = await getUserClinicId();
+    if (!clinicId) {
+      alert("Clinic ID tidak terdeteksi!");
+      return;
+    }
+
     setIsSendingReply(true);
     const messageToSend = replyText.trim();
 
@@ -197,12 +244,12 @@ export function InboxPage() {
       const fonnteToken = configData?.value || import.meta.env.VITE_FONNTE_TOKEN;
 
       if (!fonnteToken) {
-        alert("Token belum dikonfigurasi di Pengaturan!");
+        alert("Token Fonnte belum dikonfigurasi di Pengaturan!");
         setIsSendingReply(false);
         return;
       }
 
-      // 2. Kirim Pesan via Fonnte API
+      // 1. Kirim Pesan via Fonnte API
       const formData = new FormData();
       formData.append("target", activeContact.sender_number);
       formData.append("message", messageToSend);
@@ -221,8 +268,10 @@ export function InboxPage() {
         if (activeContact.patient_id) {
           const { data: userData } = await supabase.auth.getUser();
 
+          // Catat Outbound Log lengkap dengan clinic_id
           await supabase.from("message_logs").insert({
             user_id: userData?.user?.id || null,
+            clinic_id: clinicId,
             patient_id: activeContact.patient_id,
             recipient_phone: activeContact.sender_number,
             message_content: messageToSend,
@@ -231,7 +280,7 @@ export function InboxPage() {
           });
         }
 
-        // 4. Update UI Chat History Secara Instan
+        // Update UI Chat History
         const newChatItem: ChatItem = {
           id: `out-${Date.now()}`,
           sender_type: "outbound",

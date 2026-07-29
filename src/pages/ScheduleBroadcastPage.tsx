@@ -77,6 +77,7 @@ interface MessageTemplate {
   title: string;
   content: string;
   user_id?: string;
+  clinic_id?: string;
   created_at?: string;
 }
 
@@ -86,6 +87,7 @@ interface ScheduledBroadcast {
   scheduled_time: string;
   status: "pending" | "processing" | "completed" | "failed";
   user_id: string;
+  clinic_id?: string;
   created_at: string;
   task_count?: number;
 }
@@ -124,6 +126,8 @@ const getStatusBadge = (status: string) => {
 };
 
 export function ScheduleBroadcastPage() {
+  const [currentClinicId, setCurrentClinicId] = useState<string | null>(null);
+
   const [title, setTitle] = useState("");
   const [scheduledTime, setScheduledTime] = useState("");
   const [recipientMode, setRecipientMode] = useState<"group" | "custom">("group");
@@ -188,6 +192,27 @@ export function ScheduleBroadcastPage() {
   const [editScheduledTime, setEditScheduledTime] = useState("");
   const [isUpdating, setIsUpdating] = useState(false);
 
+  // Helper Mendapatkan Clinic ID User Aktif
+  const getUserClinicId = async (): Promise<string | null> => {
+    if (currentClinicId) return currentClinicId;
+
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData?.user?.id;
+    if (!userId) return null;
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("clinic_id")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (profile?.clinic_id) {
+      setCurrentClinicId(profile.clinic_id);
+      return profile.clinic_id;
+    }
+    return null;
+  };
+
   useEffect(() => {
     fetchSchedules();
     fetchGroups();
@@ -217,9 +242,17 @@ export function ScheduleBroadcastPage() {
   const fetchSavedDocuments = async () => {
     setIsLoadingSavedDocs(true);
     try {
+      const clinicId = await getUserClinicId();
+      if (!clinicId) {
+        setSavedDocuments([]);
+        setIsLoadingSavedDocs(false);
+        return;
+      }
+
       const { data, error } = await supabase
         .from("user_documents")
         .select("*")
+        .eq("clinic_id", clinicId)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
@@ -255,13 +288,17 @@ export function ScheduleBroadcastPage() {
   const fetchSchedules = async () => {
     setIsLoadingSchedules(true);
     try {
-      const { data: userData } = await supabase.auth.getUser();
-      const userId = userData?.user?.id;
+      const clinicId = await getUserClinicId();
+      if (!clinicId) {
+        setSchedules([]);
+        setIsLoadingSchedules(false);
+        return;
+      }
 
       const { data, error } = await supabase
         .from('scheduled_broadcasts')
         .select('*')
-        .eq('user_id', userId)
+        .eq('clinic_id', clinicId)
         .order('scheduled_time', { ascending: true });
 
       if (error) throw error;
@@ -290,13 +327,16 @@ export function ScheduleBroadcastPage() {
 
   const fetchGroups = async () => {
     try {
-      const { data: userData } = await supabase.auth.getUser();
-      const userId = userData?.user?.id;
+      const clinicId = await getUserClinicId();
+      if (!clinicId) {
+        setGroups([]);
+        return;
+      }
 
       const { data, error } = await supabase
         .from('patient_groups')
         .select('*')
-        .eq('user_id', userId)
+        .eq('clinic_id', clinicId)
         .order('name', { ascending: true });
 
       if (error) throw error;
@@ -359,9 +399,16 @@ export function ScheduleBroadcastPage() {
 
   const fetchPatients = async () => {
     try {
+      const clinicId = await getUserClinicId();
+      if (!clinicId) {
+        setPatients([]);
+        return;
+      }
+
       const { data, error } = await supabase
         .from('patients')
         .select('id, name, phone_number')
+        .eq('clinic_id', clinicId)
         .eq('status', 'Aktif')
         .order('name', { ascending: true });
 
@@ -376,10 +423,8 @@ export function ScheduleBroadcastPage() {
   const fetchTemplates = async () => {
     setIsLoadingTemplates(true);
     try {
-      const { data: userData } = await supabase.auth.getUser();
-      const userId = userData?.user?.id;
-
-      if (!userId) {
+      const clinicId = await getUserClinicId();
+      if (!clinicId) {
         setIsLoadingTemplates(false);
         return;
       }
@@ -387,7 +432,7 @@ export function ScheduleBroadcastPage() {
       const { data, error } = await supabase
         .from('message_templates')
         .select('*')
-        .eq('user_id', userId)
+        .eq('clinic_id', clinicId)
         .order('created_at', { ascending: true });
 
       if (error) throw error;
@@ -464,12 +509,13 @@ export function ScheduleBroadcastPage() {
 
     setIsImporting(true);
     try {
+      const clinicId = await getUserClinicId();
       const { data: userData } = await supabase.auth.getUser();
       const userId = userData?.user?.id;
-      if (!userId) throw new Error("User tidak terautentikasi");
+      if (!userId || !clinicId) throw new Error("User atau klinik tidak terautentikasi");
 
       const fileExt = file.name.split(".").pop()?.toLowerCase();
-      let importedTemplates: { title: string; content: string; user_id: string }[] = [];
+      let importedTemplates: { title: string; content: string; user_id: string; clinic_id: string }[] = [];
 
       if (fileExt === "xlsx" || fileExt === "xls") {
         const dataBuffer = await file.arrayBuffer();
@@ -485,6 +531,7 @@ export function ScheduleBroadcastPage() {
               title: String(title).trim(),
               content: String(content).trim(),
               user_id: userId,
+              clinic_id: clinicId,
             };
           })
           .filter((t) => t.title !== "" && t.content !== "");
@@ -499,6 +546,7 @@ export function ScheduleBroadcastPage() {
             title: title.substring(0, 50),
             content: content,
             user_id: userId,
+            clinic_id: clinicId,
           });
         }
       } else {
@@ -539,16 +587,18 @@ export function ScheduleBroadcastPage() {
 
     setIsCreatingTemplate(true);
     try {
+      const clinicId = await getUserClinicId();
       const { data: userData } = await supabase.auth.getUser();
       const userId = userData?.user?.id;
-      if (!userId) throw new Error("User not authenticated");
+      if (!userId || !clinicId) throw new Error("User or clinic not authenticated");
 
       const { data, error } = await supabase
         .from('message_templates')
         .insert({
           title: newTemplateTitle,
           content: newTemplateContent,
-          user_id: userId
+          user_id: userId,
+          clinic_id: clinicId,
         })
         .select();
 
@@ -681,7 +731,7 @@ export function ScheduleBroadcastPage() {
     return formatted;
   };
 
-  const generateGroupTasks = async (broadcastId: string) => {
+  const generateGroupTasks = async (broadcastId: string, clinicId: string) => {
     const tasks = [];
     for (const member of groupMembers) {
       const personalizedMessage = formatPersonalMessage(
@@ -691,6 +741,7 @@ export function ScheduleBroadcastPage() {
       );
       tasks.push({
         broadcast_id: broadcastId,
+        clinic_id: clinicId,
         patient_id: member.patient_id,
         phone_number: member.phone_number,
         message_content: personalizedMessage,
@@ -703,7 +754,7 @@ export function ScheduleBroadcastPage() {
     return tasks;
   };
 
-  const generateCustomTasks = async (broadcastId: string) => {
+  const generateCustomTasks = async (broadcastId: string, clinicId: string) => {
     const tasks = [];
     for (const recipient of customRecipients) {
       const personalizedMessage = formatPersonalMessage(
@@ -713,6 +764,7 @@ export function ScheduleBroadcastPage() {
       );
       tasks.push({
         broadcast_id: broadcastId,
+        clinic_id: clinicId,
         patient_id: recipient.patientId,
         phone_number: recipient.patientPhone,
         message_content: personalizedMessage,
@@ -771,10 +823,11 @@ export function ScheduleBroadcastPage() {
     setIsSaving(true);
 
     try {
+      const clinicId = await getUserClinicId();
       const { data: userData } = await supabase.auth.getUser();
       const userId = userData?.user?.id;
 
-      if (!userId) throw new Error("User not authenticated");
+      if (!userId || !clinicId) throw new Error("User atau Klinik tidak terautentikasi");
 
       const { data: scheduleData, error: scheduleError } = await supabase
         .from('scheduled_broadcasts')
@@ -783,6 +836,7 @@ export function ScheduleBroadcastPage() {
           scheduled_time: new Date(scheduledTime).toISOString(),
           status: "pending",
           user_id: userId,
+          clinic_id: clinicId,
         })
         .select()
         .single();
@@ -791,9 +845,9 @@ export function ScheduleBroadcastPage() {
 
       let tasks = [];
       if (recipientMode === "group") {
-        tasks = await generateGroupTasks(scheduleData.id);
+        tasks = await generateGroupTasks(scheduleData.id, clinicId);
       } else {
-        tasks = await generateCustomTasks(scheduleData.id);
+        tasks = await generateCustomTasks(scheduleData.id, clinicId);
       }
 
       if (tasks.length > 0) {
@@ -862,13 +916,17 @@ export function ScheduleBroadcastPage() {
 
     setIsUpdating(true);
     try {
+      const clinicId = await getUserClinicId();
+      if (!clinicId) throw new Error("Clinic ID tidak ditemukan");
+
       const { error } = await supabase
         .from('scheduled_broadcasts')
         .update({
           title: editTitle.trim(),
           scheduled_time: new Date(editScheduledTime).toISOString(),
         })
-        .eq('id', selectedSchedule.id);
+        .eq('id', selectedSchedule.id)
+        .eq('clinic_id', clinicId);
 
       if (error) throw error;
 
@@ -893,10 +951,14 @@ export function ScheduleBroadcastPage() {
     if (!selectedSchedule) return;
 
     try {
+      const clinicId = await getUserClinicId();
+      if (!clinicId) throw new Error("Clinic ID tidak ditemukan");
+
       const { error } = await supabase
         .from('scheduled_broadcasts')
         .delete()
-        .eq('id', selectedSchedule.id);
+        .eq('id', selectedSchedule.id)
+        .eq('clinic_id', clinicId);
 
       if (error) throw error;
 

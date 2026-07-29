@@ -36,6 +36,7 @@ interface Patient {
   date_of_birth: string;
   gender: string;
   status: string;
+  clinic_id?: string;
 }
 
 interface ImportLog {
@@ -55,6 +56,7 @@ interface ExcelRow {
 
 export function PatientsPage() {
   const [patients, setPatients] = useState<Patient[]>([]);
+  const [currentClinicId, setCurrentClinicId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
@@ -84,12 +86,43 @@ export function PatientsPage() {
     fetchPatients();
   }, []);
 
+  // Helper Ambil Clinic ID User Aktif
+  const getUserClinicId = async (): Promise<string | null> => {
+    if (currentClinicId) return currentClinicId;
+
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData?.user?.id;
+    if (!userId) return null;
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('clinic_id')
+      .eq('id', userId)
+      .maybeSingle();
+
+    if (profile?.clinic_id) {
+      setCurrentClinicId(profile.clinic_id);
+      return profile.clinic_id;
+    }
+    return null;
+  };
+
   const fetchPatients = async () => {
     setIsLoading(true);
     try {
+      const clinicId = await getUserClinicId();
+
+      if (!clinicId) {
+        setPatients([]);
+        setIsLoading(false);
+        return;
+      }
+
+      // Filter query berdasarkan clinic_id
       const { data, error } = await supabase
         .from('patients')
         .select('*')
+        .eq('clinic_id', clinicId)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -118,13 +151,12 @@ export function PatientsPage() {
     const ws = XLSX.utils.json_to_sheet(templateData);
     
     ws['!cols'] = [
-      { wch: 25 }, // Nama Lengkap
-      { wch: 20 }, // Jenis Kelamin
-      { wch: 20 }, // Nomor WhatsApp
-      { wch: 15 }  // Tanggal Lahir
+      { wch: 25 },
+      { wch: 20 },
+      { wch: 20 },
+      { wch: 15 }
     ];
     
-
     const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:D2');
     for (let row = range.s.r; row <= range.e.r; row++) {
       for (let col = range.s.c; col <= range.e.c; col++) {
@@ -133,7 +165,7 @@ export function PatientsPage() {
         
         if (col === 2 && row > 0) {
           ws[cellAddress].t = 's'; 
-          ws[cellAddress].z = '@'; // Text format
+          ws[cellAddress].z = '@';
         }
         if (col === 3 && row > 0) {
           ws[cellAddress].z = 'yyyy-mm-dd'; 
@@ -145,7 +177,6 @@ export function PatientsPage() {
     XLSX.utils.book_append_sheet(wb, ws, "Template Pasien");
     XLSX.writeFile(wb, "template_pasien.xlsx");
   };
-
 
   const sanitizePhoneNumber = (phone: string): string => {
     let cleaned = phone.replace(/\D/g, "");
@@ -187,9 +218,13 @@ export function PatientsPage() {
 
   const checkDuplicatePatient = async (name: string, phoneNumber: string, excludeId?: string): Promise<Patient | null> => {
     try {
+      const clinicId = await getUserClinicId();
+      if (!clinicId) return null;
+
       let query = supabase
         .from('patients')
         .select('*')
+        .eq('clinic_id', clinicId)
         .eq('name', name)
         .eq('phone_number', phoneNumber);
 
@@ -208,10 +243,15 @@ export function PatientsPage() {
     }
   };
 
-
   const handleImportExcel = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+
+    const clinicId = await getUserClinicId();
+    if (!clinicId) {
+      alert("Clinic ID tidak ditemukan, silakan reload halaman.");
+      return;
+    }
 
     setIsImporting(true);
     setImportLogs([]);
@@ -221,7 +261,6 @@ export function PatientsPage() {
     let failedCount = 0;
 
     try {
-
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data);
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];
@@ -327,7 +366,8 @@ export function PatientsPage() {
               date_of_birth: dateOfBirth,
               updated_at: new Date().toISOString()
             })
-            .eq('id', existingPatient.id);
+            .eq('id', existingPatient.id)
+            .eq('clinic_id', clinicId);
 
           if (error) {
             logs.push({
@@ -355,6 +395,7 @@ export function PatientsPage() {
             date_of_birth: dateOfBirth,
             gender: gender,
             status: 'Aktif',
+            clinic_id: clinicId, // Sertakan clinic_id saat import
             created_at: new Date().toISOString()
           };
 
@@ -416,6 +457,12 @@ export function PatientsPage() {
       return;
     }
 
+    const clinicId = await getUserClinicId();
+    if (!clinicId) {
+      alert("Gagal mendeteksi akun klinik! Silakan refresh halaman.");
+      return;
+    }
+
     setIsSaving(true);
 
     try {
@@ -437,6 +484,7 @@ export function PatientsPage() {
         date_of_birth: formData.date_of_birth,
         gender: formData.gender,
         status: 'Aktif',
+        clinic_id: clinicId, // Disertakan saat Tambah Kontak
       };
 
       const { error } = await supabase
@@ -465,10 +513,7 @@ export function PatientsPage() {
   };
 
   const handleEditPatient = async () => {
-    if (!selectedPatient) {
-      console.error("Tidak ada pasien yang dipilih untuk diedit");
-      return;
-    }
+    if (!selectedPatient) return;
 
     if (!formData.name || !formData.phone_number || !formData.date_of_birth || !formData.gender) {
       alert("Mohon isi semua field!");
@@ -479,6 +524,9 @@ export function PatientsPage() {
       alert("Nomor WhatsApp tidak valid! Gunakan format Indonesia (contoh: 081234567890)");
       return;
     }
+
+    const clinicId = await getUserClinicId();
+    if (!clinicId) return;
 
     setIsSaving(true);
 
@@ -505,7 +553,8 @@ export function PatientsPage() {
       const { error } = await supabase
         .from('patients')
         .update(updatedPatient)
-        .eq('id', selectedPatient.id);
+        .eq('id', selectedPatient.id)
+        .eq('clinic_id', clinicId);
 
       if (error) throw error;
 
@@ -531,6 +580,8 @@ export function PatientsPage() {
 
   const handleDeletePatient = async () => {
     if (!selectedPatient) return;
+    const clinicId = await getUserClinicId();
+    if (!clinicId) return;
 
     setIsSaving(true);
 
@@ -538,7 +589,8 @@ export function PatientsPage() {
       const { error } = await supabase
         .from('patients')
         .delete()
-        .eq('id', selectedPatient.id);
+        .eq('id', selectedPatient.id)
+        .eq('clinic_id', clinicId);
 
       if (error) throw error;
 

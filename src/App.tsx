@@ -1,7 +1,8 @@
-import { useEffect } from "react"; // <-- TAMBAHKAN INI
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom"; // <-- TAMBAHKAN useLocation
+import { useEffect } from "react";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { AuthGuard } from "@/components/AuthGuard";
+import { SuperAdminRoute } from "@/components/SuperAdminRoute"; // Import SuperAdminRoute
 import { LoginPage } from "@/pages/LoginPage";
 import { BroadcastPage } from "@/pages/BroadcastPage";
 import { DashboardPage } from "@/pages/DashboardPage";
@@ -15,6 +16,7 @@ import { InboxPage } from "@/pages/InboxPage";
 import { DocumentManagerPage } from "@/pages/DocumentManagerPage";
 import { TermsPageDash } from "@/pages/TermsPageDash";
 import { DocsPage } from "@/pages/DocsPage";
+import { SuperAdminPage } from "@/pages/SuperAdminPage"; // Import SuperAdminPage
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -40,7 +42,7 @@ export default function App() {
         <Route path="/login" element={<LoginPage />} />
         
         {/* ========================================================
-            2. HALAMAN PROTEKSI (Harus lewat AuthGuard / Login)
+            2. HALAMAN PROTEKSI KLINIK (Harus lewat AuthGuard)
            ======================================================== */}
         <Route element={<AuthGuard />}>
           <Route element={<MainLayout />}>
@@ -58,7 +60,16 @@ export default function App() {
         </Route>
 
         {/* ========================================================
-            3. FALLBACK RUTE GLOBAL
+            3. HALAMAN SUPERADMIN (Khusus Role Superadmin)
+           ======================================================== */}
+        <Route element={<AuthGuard />}>
+          <Route element={<SuperAdminRoute />}>
+            <Route path="/superadmin" element={<SuperAdminPage />} />
+          </Route>
+        </Route>
+
+        {/* ========================================================
+            4. FALLBACK RUTE GLOBAL
            ======================================================== */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

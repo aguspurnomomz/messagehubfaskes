@@ -119,6 +119,7 @@ type DateFilterType = "today" | "weekly" | "monthly" | "custom";
 
 export function BroadcastPage() {
   const [sendMode, setSendMode] = useState<SendMode>("single");
+  const [currentClinicId, setCurrentClinicId] = useState<string | null>(null);
   
   const [patients, setPatients] = useState<PatientOption[]>([]);
   const [isLoadingPatients, setIsLoadingPatients] = useState(false);
@@ -205,6 +206,27 @@ export function BroadcastPage() {
   const patientDropdownRef = useRef<HTMLDivElement>(null);
   const groupDropdownRef = useRef<HTMLDivElement>(null);
 
+  // Helper Mendapatkan Clinic ID User Aktif
+  const getUserClinicId = async (): Promise<string | null> => {
+    if (currentClinicId) return currentClinicId;
+
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData?.user?.id;
+    if (!userId) return null;
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("clinic_id")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (profile?.clinic_id) {
+      setCurrentClinicId(profile.clinic_id);
+      return profile.clinic_id;
+    }
+    return null;
+  };
+
   useEffect(() => {
     fetchPatients();
     fetchGroups();
@@ -248,9 +270,17 @@ export function BroadcastPage() {
   const fetchSavedDocuments = async () => {
     setIsLoadingSavedDocs(true);
     try {
+      const clinicId = await getUserClinicId();
+      if (!clinicId) {
+        setSavedDocuments([]);
+        setIsLoadingSavedDocs(false);
+        return;
+      }
+
       const { data, error } = await supabase
         .from("user_documents")
         .select("*")
+        .eq("clinic_id", clinicId)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
@@ -343,12 +373,13 @@ export function BroadcastPage() {
 
     setIsImporting(true);
     try {
+      const clinicId = await getUserClinicId();
       const { data: userData } = await supabase.auth.getUser();
       const userId = userData?.user?.id;
-      if (!userId) throw new Error("User tidak terautentikasi");
+      if (!userId || !clinicId) throw new Error("User atau Klinik tidak terautentikasi");
 
       const fileExt = file.name.split(".").pop()?.toLowerCase();
-      let importedTemplates: { title: string; content: string; user_id: string }[] = [];
+      let importedTemplates: { title: string; content: string; user_id: string; clinic_id: string }[] = [];
 
       if (fileExt === "xlsx" || fileExt === "xls") {
         const dataBuffer = await file.arrayBuffer();
@@ -364,6 +395,7 @@ export function BroadcastPage() {
               title: String(title).trim(),
               content: String(content).trim(),
               user_id: userId,
+              clinic_id: clinicId,
             };
           })
           .filter((t) => t.title !== "" && t.content !== "");
@@ -379,6 +411,7 @@ export function BroadcastPage() {
             title: title.substring(0, 50),
             content: content,
             user_id: userId,
+            clinic_id: clinicId,
           });
         }
       } else {
@@ -415,6 +448,13 @@ export function BroadcastPage() {
   const fetchRecentDeliveries = async () => {
     setIsLoadingDeliveries(true);
     try {
+      const clinicId = await getUserClinicId();
+      if (!clinicId) {
+        setRecentDeliveries([]);
+        setIsLoadingDeliveries(false);
+        return;
+      }
+
       let query = supabase
         .from('message_logs')
         .select(`
@@ -424,10 +464,11 @@ export function BroadcastPage() {
           status,
           created_at,
           patient_id,
-          patients!inner (
+          patients (
             name
           )
         `)
+        .eq('clinic_id', clinicId)
         .order('created_at', { ascending: false });
 
       const now = new Date();
@@ -458,7 +499,7 @@ export function BroadcastPage() {
 
       const deliveries: RecentDelivery[] = (data || []).map((item: any) => ({
         id: item.id,
-        patientName: item.patients?.name || 'Unknown',
+        patientName: item.patients?.name || 'Pasien Umum / Kustom',
         messageType: item.message_type,
         messageContent: item.message_content,
         status: item.status,
@@ -547,11 +588,12 @@ export function BroadcastPage() {
   const fetchTemplates = async () => {
     setIsLoadingTemplates(true);
     try {
+      const clinicId = await getUserClinicId();
       const { data: userData } = await supabase.auth.getUser();
       const userId = userData?.user?.id;
 
-      if (!userId) {
-        console.error("User not authenticated");
+      if (!userId || !clinicId) {
+        console.error("User or clinic not authenticated");
         setIsLoadingTemplates(false);
         return;
       }
@@ -559,7 +601,7 @@ export function BroadcastPage() {
       const { data, error } = await supabase
         .from('message_templates')
         .select('*')
-        .eq('user_id', userId)
+        .eq('clinic_id', clinicId)
         .order('created_at', { ascending: true });
 
       if (error) throw error;
@@ -570,7 +612,7 @@ export function BroadcastPage() {
         setSelectedTemplateTitle(data[0].title);
         setMessage(data[0].content);
       } else {
-        await createDefaultTemplates(userId);
+        await createDefaultTemplates(userId, clinicId);
       }
     } catch (error: any) {
       console.error('Error fetching templates:', error);
@@ -582,17 +624,19 @@ export function BroadcastPage() {
     }
   };
 
-  const createDefaultTemplates = async (userId: string) => {
+  const createDefaultTemplates = async (userId: string, clinicId: string) => {
     const defaultTemplates = [
       {
         title: "Hasil Lab",
         content: "Yth. {{name}},\n\nHasil laboratorium Anda sudah keluar.\n{{value1}}\nSilakan datang ke klinik untuk konsultasi lebih lanjut.\n\nTerima kasih.",
-        user_id: userId
+        user_id: userId,
+        clinic_id: clinicId
       },
       {
         title: "Antrian",
         content: "Halo {{name}},\n\nNomor antrian Anda: {{queueNo}}\nCatatan: {{value1}}\nPerkiraan waktu tunggu: 30 menit.\n\nTerima kasih.",
-        user_id: userId
+        user_id: userId,
+        clinic_id: clinicId
       }
     ];
 
@@ -620,17 +664,19 @@ export function BroadcastPage() {
 
     setIsCreatingTemplate(true);
     try {
+      const clinicId = await getUserClinicId();
       const { data: userData } = await supabase.auth.getUser();
       const userId = userData?.user?.id;
 
-      if (!userId) throw new Error("User not authenticated");
+      if (!userId || !clinicId) throw new Error("User or clinic not authenticated");
 
       const { data, error } = await supabase
         .from('message_templates')
         .insert({
           title: newTemplateTitle,
           content: newTemplateContent,
-          user_id: userId
+          user_id: userId,
+          clinic_id: clinicId
         })
         .select();
 
@@ -766,9 +812,17 @@ export function BroadcastPage() {
   const fetchPatients = async () => {
     setIsLoadingPatients(true);
     try {
+      const clinicId = await getUserClinicId();
+      if (!clinicId) {
+        setPatients([]);
+        setIsLoadingPatients(false);
+        return;
+      }
+
       const { data, error } = await supabase
         .from('patients')
         .select('id, name, phone_number')
+        .eq('clinic_id', clinicId)
         .eq('status', 'Aktif')
         .order('name', { ascending: true });
 
@@ -791,13 +845,17 @@ export function BroadcastPage() {
   const fetchGroups = async () => {
     setIsLoadingGroups(true);
     try {
-      const { data: userData } = await supabase.auth.getUser();
-      const userId = userData?.user?.id;
+      const clinicId = await getUserClinicId();
+      if (!clinicId) {
+        setGroups([]);
+        setIsLoadingGroups(false);
+        return;
+      }
 
       const { data, error } = await supabase
         .from('patient_groups')
         .select('*')
-        .eq('user_id', userId)
+        .eq('clinic_id', clinicId)
         .order('name', { ascending: true });
 
       if (error) throw error;
@@ -902,17 +960,19 @@ export function BroadcastPage() {
 
     setIsSavingGroup(true);
     try {
+      const clinicId = await getUserClinicId();
       const { data: userData } = await supabase.auth.getUser();
       const userId = userData?.user?.id;
 
-      if (!userId) throw new Error("User not authenticated");
+      if (!userId || !clinicId) throw new Error("User or clinic not authenticated");
 
       const { error } = await supabase
         .from('patient_groups')
         .insert({
           name: newGroupName,
           description: newGroupDesc || null,
-          user_id: userId
+          user_id: userId,
+          clinic_id: clinicId
         });
 
       if (error) throw error;
@@ -1058,11 +1118,12 @@ export function BroadcastPage() {
   const fetchClinicSettings = async () => {
     setIsLoadingSettings(true);
     try {
+      const clinicId = await getUserClinicId();
       const { data: userData } = await supabase.auth.getUser();
       const userId = userData?.user?.id;
 
-      if (!userId) {
-        console.error("User not authenticated");
+      if (!userId || !clinicId) {
+        console.error("User or clinic not authenticated");
         setIsLoadingSettings(false);
         return;
       }
@@ -1070,7 +1131,7 @@ export function BroadcastPage() {
       const { data, error } = await supabase
         .from('clinic_settings')
         .select('fonte_api_key, signature, clinic_name')
-        .eq('user_id', userId)
+        .eq('clinic_id', clinicId)
         .maybeSingle();
 
       if (error && error.code !== 'PGRST116') throw error;
@@ -1118,8 +1179,7 @@ export function BroadcastPage() {
     return personalized;
   };
 
-
- // Nembak API Fonnte dengan Dukungan Parameter File URL & Filename
+  // Nembak API Fonnte dengan Dukungan Parameter File URL & Filename
   const sendToFonnte = async (
     phoneNumber: string, 
     messageText: string, 
@@ -1168,10 +1228,15 @@ export function BroadcastPage() {
     fileUrl: string | null = null
   ) => {
     try {
+      const clinicId = await getUserClinicId(); // <-- Ambil clinic_id aktif
+      const { data: userData } = await supabase.auth.getUser();
+
       await supabase.from('message_logs').insert({
+        user_id: userData?.user?.id || null,
+        clinic_id: clinicId, // <-- WAJIB DISERTAKAN AGAR TERBACA DI DASHBOARD
         patient_id: patientId,
         message_type: messageType,
-        message_content: messageContent,
+        messageContent: messageContent,
         status: status,
         delivery_time: new Date().toISOString(),
         fonte_response_id: fonteResponseId,
@@ -1226,7 +1291,6 @@ export function BroadcastPage() {
         fileName = selectedExistingDocument.document_name;
       }
 
-  
       const result = await sendToFonnte(
         selectedPatient.phone_number, 
         fullMessage, 
@@ -1940,7 +2004,6 @@ export function BroadcastPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle>Pratinjau Pesan</CardTitle>
-                  {/* <CardDescription>Pratinjau pesan secara real time</CardDescription> */}
                 </div>
                 <Smartphone className="h-5 w-5 text-muted-foreground" />
               </div>

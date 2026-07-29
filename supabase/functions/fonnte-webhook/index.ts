@@ -31,31 +31,46 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     )
 
-    // 4. Normalisasi nomor telepon & Lookup patient_id dari tabel 'patients'
+    // 4. Normalisasi nomor telepon & Lookup patient dari tabel 'patients'
     const cleanSender = sender.replace(/[^0-9]/g, '') // Menghasilkan "6281324439591"
 
-    // Buat variasi format lokal (08xxx) dan internasional (628xxx)
     let localPhone = cleanSender
     let intlPhone = cleanSender
 
     if (cleanSender.startsWith('62')) {
-      localPhone = '0' + cleanSender.slice(2) // Mengubah "6281324439591" -> "081324439591"
+      localPhone = '0' + cleanSender.slice(2)
     } else if (cleanSender.startsWith('0')) {
-      intlPhone = '62' + cleanSender.slice(1)  // Mengubah "081324439591" -> "6281324439591"
+      intlPhone = '62' + cleanSender.slice(1)
     }
 
-    // Cari di tabel patients dengan mencocokkan seluruh kemungkinan format
+    // Cari pasien DAN clinic_id milik pasien tersebut
     const { data: patient } = await supabaseAdmin
       .from('patients')
-      .select('id')
+      .select('id, clinic_id') // <-- Tambahkan clinic_id
       .or(`phone_number.eq.${cleanSender},phone_number.eq.${localPhone},phone_number.eq.${intlPhone},phone_number.eq.+${intlPhone}`)
       .maybeSingle()
 
-    // 5. Simpan pesan masuk ke tabel incoming_message_logs
+    let clinicId = patient?.clinic_id || null
+
+    // Jika pasien tidak terdaftar/pasien baru, cari clinic_id berdasarkan device/nomor WA klinik di clinic_settings
+    if (!clinicId && device) {
+      const { data: setting } = await supabaseAdmin
+        .from('clinic_settings')
+        .select('clinic_id')
+        .or(`fonnte_device.eq.${device},fonnte_device.eq.62${device.slice(1)}`)
+        .maybeSingle()
+
+      if (setting?.clinic_id) {
+        clinicId = setting.clinic_id
+      }
+    }
+
+    // 5. Simpan pesan masuk ke tabel incoming_message_logs LENGKAP dengan clinic_id
     const { error: insertError } = await supabaseAdmin
       .from('incoming_message_logs')
       .insert({
-        patient_id: patient?.id || null, // Sekarang otomatis terisi ID Agus Purnomo
+        clinic_id: clinicId, // <-- SEKARANG SUDAH TERISI (TIDAK NULL LAGI)
+        patient_id: patient?.id || null, 
         sender_number: sender,
         sender_name: name || null,
         message_content: message,

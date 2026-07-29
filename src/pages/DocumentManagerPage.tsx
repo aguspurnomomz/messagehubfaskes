@@ -26,6 +26,7 @@ import { uploadAndSaveDocument, type UserDocument } from "@/lib/documentService"
 
 export function DocumentManagerPage() {
   const [documents, setDocuments] = useState<UserDocument[]>([]);
+  const [currentClinicId, setCurrentClinicId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -35,6 +36,27 @@ export function DocumentManagerPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Helper Mendapatkan Clinic ID User Aktif
+  const getUserClinicId = async (): Promise<string | null> => {
+    if (currentClinicId) return currentClinicId;
+
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData?.user?.id;
+    if (!userId) return null;
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("clinic_id")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (profile?.clinic_id) {
+      setCurrentClinicId(profile.clinic_id);
+      return profile.clinic_id;
+    }
+    return null;
+  };
+
   useEffect(() => {
     fetchDocuments();
   }, []);
@@ -42,9 +64,18 @@ export function DocumentManagerPage() {
   const fetchDocuments = async () => {
     setIsLoading(true);
     try {
+      const clinicId = await getUserClinicId();
+      if (!clinicId) {
+        setDocuments([]);
+        setIsLoading(false);
+        return;
+      }
+
+      // Filter dokumen hanya milik clinic_id aktif
       const { data, error } = await supabase
         .from("user_documents")
         .select("*")
+        .eq("clinic_id", clinicId)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
@@ -63,6 +94,7 @@ export function DocumentManagerPage() {
     setStatusMessage(null);
 
     try {
+      // Fungsi ini secara internal di documentService akan menyimpan dokumen dengan clinic_id
       await uploadAndSaveDocument(selectedFile, null, docType);
       
       setStatusMessage({ type: "success", text: `Berkas "${selectedFile.name}" berhasil diunggah!` });
@@ -82,29 +114,38 @@ export function DocumentManagerPage() {
     if (!confirm(`Apakah Anda yakin ingin menghapus "${doc.document_name}"?`)) return;
 
     try {
-        if (doc.file_path) {
+      const clinicId = await getUserClinicId();
+      if (!clinicId) throw new Error("Clinic ID tidak valid");
+
+      if (doc.file_path) {
         // Pastikan path menyertakan folder 'documents/' jika belum ada
         const fullStoragePath = doc.file_path.startsWith("documents/")
-            ? doc.file_path
-            : `documents/${doc.file_path}`;
+          ? doc.file_path
+          : `documents/${doc.file_path}`;
 
         const { error: storageError } = await supabase.storage
-            .from("clinic-attachments")
-            .remove([fullStoragePath]);
+          .from("clinic-attachments")
+          .remove([fullStoragePath]);
 
         if (storageError) {
-            console.error("Gagal menghapus file di Storage:", storageError);
+          console.error("Gagal menghapus file di Storage:", storageError);
         }
-        }
+      }
 
-        const { error: dbError } = await supabase.from("user_documents").delete().eq("id", doc.id);
-        if (dbError) throw dbError;
+      // Hapus di DB dengan isolasi clinic_id
+      const { error: dbError } = await supabase
+        .from("user_documents")
+        .delete()
+        .eq("id", doc.id)
+        .eq("clinic_id", clinicId);
 
-        setDocuments((prev) => prev.filter((d) => d.id !== doc.id));
-        setStatusMessage({ type: "success", text: "Dokumen berhasil dihapus." });
+      if (dbError) throw dbError;
+
+      setDocuments((prev) => prev.filter((d) => d.id !== doc.id));
+      setStatusMessage({ type: "success", text: "Dokumen berhasil dihapus." });
     } catch (err: any) {
-        console.error("Delete error:", err);
-        setStatusMessage({ type: "error", text: err.message || "Gagal menghapus dokumen." });
+      console.error("Delete error:", err);
+      setStatusMessage({ type: "error", text: err.message || "Gagal menghapus dokumen." });
     }
   };
 
